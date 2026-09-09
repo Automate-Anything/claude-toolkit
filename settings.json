@@ -1,0 +1,78 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Edit",
+      "Write",
+      "Bash(*)",
+      "WebSearch",
+      "WebFetch(*)",
+      "Grep",
+      "Glob",
+      "PowerShell(*)",
+      "mcp__chrome-devtools__*"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(git push --force:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git checkout .:*)",
+      "Bash(git clean:*)"
+    ],
+    "defaultMode": "bypassPermissions",
+    "additionalDirectories": [
+      "\\tmp"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'py \"${CLAUDE_PROJECT_DIR}/.claude/hooks/pretooluse_bash.py\"'"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'py \"${CLAUDE_PROJECT_DIR}/.claude/hooks/pretooluse_code.py\"'"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'py \"${CLAUDE_PROJECT_DIR}/.claude/hooks/pretooluse_code.py\"'"
+          }
+        ]
+      },
+      {
+        "matcher": "(AskUserQuestion|mcp__.*__AskUserQuestion)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'py \"${CLAUDE_PROJECT_DIR}/.claude/hooks/pretooluse_askuserquestion.py\"'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'py \"${CLAUDE_PROJECT_DIR}/.claude/hooks/stop_no_em_dash.py\"'",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

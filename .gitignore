@@ -1,0 +1,19 @@
+# Python caches
+__pycache__/
+*.pyc
+
+# settings.json backups the installer creates
+settings.json.bak-*
+settings.json.bak.*
+*.bak-latest
+
+# Machine-local Claude Code settings (never share these across the team)
+settings.local.json
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Editor noise
+.vscode/
+.idea/
