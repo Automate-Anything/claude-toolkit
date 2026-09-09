@@ -1,65 +1,67 @@
 ---
 name: install-toolkit
-description: Install this shared .claude toolkit (all the skills, commands, and safety hooks) into the CURRENT repository, or update it if already installed. Read and run this when the user says "install the toolkit", "install that package", "set up the .claude toolkit here", "add my skills to this repo", "update the toolkit", or asks to bring the shared skills/hooks into a new repository. It runs the bundled install.py, which copies skills/commands/hooks and safely MERGES settings.json without clobbering anything the repo already has.
+description: Install or update this shared agent toolkit (all the skills, commands, and safety rules) for a coding agent, either globally (every repo on this machine) or into the current repository. Works for Claude Code, Cursor, and Codex. Read and run this when the user says "install the toolkit", "install that package", "set it up globally", "add my skills to this repo", "install it for cursor/codex", "update the toolkit", or asks to bring the shared skills/rules into a repository or onto the machine. It runs the bundled install.py, which copies skills into each agent's folder and safely MERGES Claude's settings.json without clobbering.
 ---
 
-# Install the .claude toolkit into this repo
+# Install the agent toolkit
 
-This toolkit is a portable set of skills, slash commands, and PreToolUse/Stop
-safety hooks meant to be dropped into any repository. This skill installs (or
-updates) it in the CURRENT repo by running the bundled `install.py`.
+This toolkit is a portable set of skills, slash commands, safety hooks, and
+cross-agent rules. It installs for **Claude Code, Cursor, and Codex** by running
+the bundled `install.py`. Skills use the same `SKILL.md` format all three read;
+the installer places them in each agent's own skills folder.
 
-## What "install" does
+## First, locate the toolkit source
 
-- Copies `skills/`, `commands/`, `hooks/` into `<repo>/.claude/`.
-- MERGES `settings.json` into `<repo>/.claude/settings.json`: it unions the
-  permissions + additionalDirectories and adds the toolkit's hooks, keeping
-  everything the repo already had. It backs up the existing settings first.
-- Is safe to re-run (idempotent): re-running refreshes files and de-dupes the
-  merge, so it doubles nothing.
-
-It never deletes skills/commands the repo added on its own, and never touches
-anything outside `<repo>/.claude/`.
-
-## How to run it
-
-First, locate the toolkit source (the folder that contains `install.py`). It is
-one of:
-- **Already in this repo** at `.claude/install.py` (the user is updating in place).
-- **A sibling/known local path** the user keeps the toolkit at (ask if unsure;
-  the common one is `c:\dev\.claude`).
+Find the folder that contains `install.py`. It is one of:
+- **Already in this repo** at `.claude/install.py` (updating in place).
+- **A known local path** the user keeps it at (commonly `c:\dev\.claude`).
 - **A clone of the toolkit repo**: `https://github.com/getconversationalai/claude-toolkit`
-  (private). If it isn't on disk, clone it first:
+  (private). If it is not on disk, clone it first:
   `git clone https://github.com/getconversationalai/claude-toolkit C:/dev/claude-toolkit`
 
-Then run, from the repo you want to install INTO:
+## Then pick the command
 
+There are two scopes. Ask the user which they want if it is not clear.
+
+**Global (every repo on this machine):**
 ```bash
-# toolkit already in this repo (update in place):
-py .claude/install.py .
-
-# toolkit lives elsewhere on disk:
-py "<toolkit-path>/install.py" .
+py "<toolkit>/install.py" --global
 ```
+Installs into `~/.claude`, `~/.cursor`, `~/.codex`.
 
-`.` means "install into the current repo". The script figures out the source
-from its own location and merges into `<current-repo>/.claude/`.
+**One specific repository:**
+```bash
+py "<toolkit>/install.py" .            # run from inside the repo
+py "<toolkit>/install.py" C:/path/to/repo
+```
+Installs into that repo's `.claude`, `.cursor`, `.codex` (plus an `AGENTS.md` at
+the repo root for Cursor/Codex).
+
+**Pick specific agents (optional).** Default is all three. Narrow with `--agent`:
+```bash
+py "<toolkit>/install.py" --global --agent claude
+py "<toolkit>/install.py" . --agent cursor,codex
+```
+Valid: `claude`, `cursor`, `codex`, `all`.
+
+## What it does (safe + idempotent)
+
+- Copies `skills/` into each agent's skills dir (`.claude/skills`,
+  `.cursor/skills-cursor`, `.codex/skills`).
+- Claude Code also gets `commands/`, `hooks/`, and a MERGED `settings.json`
+  (unions permissions, adds hooks, backs up the old one first, never clobbers).
+- Cursor/Codex get an `AGENTS.md` carrying the same rules the hooks enforce
+  (never overwrites an existing `AGENTS.md`).
+- Re-running only refreshes and de-dupes: it never doubles a hook or permission.
 
 ## After installing
 
-- Tell the user to **restart Claude Code** in this repo so it loads the new
-  hooks and skills.
-- Point out that skills describing a system to build (error alerts, RLS
-  security, the money-truth doctrine, etc.) carry an "adapt before use" header:
-  they describe how things SHOULD be wired, and should be updated once the real
-  system exists in this repo.
-- If the repo has a SQL runner script and the user wants the database-write
-  confirmation gate, tell them to add its basename to `DB_RUNNER_SCRIPTS` at the
-  top of `.claude/hooks/pretooluse_bash.py` (empty by default, so the gate is
+- Tell the user to **restart the agent(s)** so they load the new skills (and, for
+  Claude Code, the hooks).
+- Note that skills describing a system to BUILD (error alerts, RLS, the
+  money-truth doctrine, etc.) carry an "adapt before use" header, and should be
+  updated once the real system exists in the repo.
+- If the repo has a SQL runner and the user wants the database-write confirmation
+  gate (Claude Code only), tell them to add its basename to `DB_RUNNER_SCRIPTS` at
+  the top of `.claude/hooks/pretooluse_bash.py` (empty by default, so the gate is
   off until they opt in).
-
-## If the user is setting up a brand-new machine
-
-The toolkit is self-contained: the no-em-dash Stop hook and the AskUserQuestion
-block ship inside `hooks/` and are wired by the merged `settings.json`, so a
-developer with no global `~/.claude` hooks still gets them per-repo after install.

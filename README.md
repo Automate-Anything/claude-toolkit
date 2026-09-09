@@ -1,13 +1,18 @@
-# The `.claude` toolkit
+# The agent toolkit
 
-A portable set of Claude Code **skills**, **slash commands**, and **safety hooks**
-that you drop into any repository. Once installed, Claude in that repo already
-knows your reusable systems (error-alert design, RLS security, query/page
-performance, the money-truth doctrine, the review standards, and more) and is
-guarded by the same hooks (no accidental commits/pushes/tree-destroys, no
-em dashes, no broken AskUserQuestion calls).
+A portable set of **skills**, **slash commands**, **safety hooks**, and
+**cross-agent rules** that you install for any coding agent, either globally (every
+repo on your machine) or into one specific repository. Once installed, the agent
+already knows your reusable systems (error-alert design, RLS security, query/page
+performance, the money-truth doctrine, SEO, the review standards, and more) and
+follows the same rules (no accidental commits/pushes/tree-destroys, no em dashes,
+verify a DB write against the live schema first).
 
-This folder IS the toolkit. Copy it into a repo's `.claude/` and you are done.
+It works for **Claude Code, Cursor, and Codex** (and any other agent that reads an
+`AGENTS.md`). Skills use the same `SKILL.md` format all three understand; the
+installer just puts them in each agent's own skills folder.
+
+This folder IS the toolkit. `install.py` copies it where each agent looks.
 
 ---
 
@@ -15,68 +20,94 @@ This folder IS the toolkit. Copy it into a repo's `.claude/` and you are done.
 
 | Folder / file | What it is |
 |---|---|
-| `skills/` | The skill library (one folder per skill, each with a `SKILL.md`). Includes `install-toolkit` (the installer skill) and reusable engineering + product + Stripe skills. |
-| `commands/` | Slash commands (e.g. `/problem-cause-solution`). |
-| `hooks/` | PreToolUse + Stop hooks (git-safety gate, no-em-dash, AskUserQuestion block, code-quality/security checks). Self-contained, no global setup needed. |
-| `settings.json` | The Claude Code settings that wire the hooks and set permissions. The installer MERGES this into a target repo, it does not clobber. |
-| `install.py` | The installer. Copies the three folders and merges `settings.json` into a target repo. |
+| `skills/` | The skill library (one folder per skill, each with a `SKILL.md`). Portable across Claude Code, Cursor, and Codex. |
+| `commands/` | Slash commands (e.g. `/problem-cause-solution`). Claude Code. |
+| `hooks/` | PreToolUse + Stop hooks (git-safety gate, no-em-dash, AskUserQuestion block, code-quality/security checks). Claude Code only. Self-contained, no global setup needed. |
+| `settings.json` | Claude Code settings that wire the hooks and set permissions. The installer MERGES this, it does not clobber. |
+| `AGENTS.md` | The same rules as the hooks, written as instructions, for agents that do not run Claude's hooks (Cursor, Codex). |
+| `install.py` | The installer. Handles all agents and both scopes (global / one repo). |
 | `README.md` | This file. |
 
-The hooks require **Python on PATH as `py`** (Windows) or adjust the command to
-`python3` (macOS/Linux). See "Non-Windows" below.
+The hooks require **Python on PATH as `py`** (Windows) or adjust to `python3`
+(macOS/Linux). See "Non-Windows" below. `install.py` runs under either.
 
 ---
 
-## Install it into a repo
+## Install it
 
-You have two ways: ask the agent, or run the command yourself. Both do the same
-thing.
+There are **two commands**: install **globally** (applies to every repo on this
+machine) or install into **one specific repository**. Each works for all agents at
+once, or a single agent you name.
 
-### Option A - tell the agent (easiest)
+### 1. Install globally (every repo on this machine)
 
-In the repo you want to set up, say to Claude Code:
+```bash
+py /path/to/toolkit/install.py --global
+```
+
+This installs into your home directory for each agent:
+`~/.claude/`, `~/.cursor/`, `~/.codex/`.
+
+### 2. Install into a specific repository
+
+```bash
+# run from inside the repo you want to set up:
+py /path/to/toolkit/install.py .
+
+# or name the repo:
+py /path/to/toolkit/install.py C:/path/to/repo
+```
+
+This installs into that repo's `.claude/`, `.cursor/`, `.codex/` (plus an
+`AGENTS.md` at the repo root for Cursor/Codex).
+
+### Pick specific agents (optional)
+
+By default it installs for **all** agents. To target one or some, add `--agent`:
+
+```bash
+py install.py --global --agent claude          # just Claude Code, globally
+py install.py . --agent cursor,codex           # Cursor + Codex, this repo
+```
+Valid agents: `claude`, `cursor`, `codex`, `all` (default).
+
+### Or just tell the agent
+
+In a repo that already has the toolkit (or that can reach a clone of it), say:
 
 > install the toolkit
 
-The agent runs the `install-toolkit` skill, which calls `install.py`. If the
-toolkit is not already in that repo, tell the agent where it lives (a local path
-like `c:\dev\.claude`, or the git URL you keep it at).
-
-### Option B - run the installer yourself
-
-From inside the repo you want to install INTO:
-
-```bash
-# if the toolkit already lives in this repo (updating in place):
-py .claude/install.py .
-
-# if the toolkit lives elsewhere on your machine:
-py "C:/path/to/.claude/install.py" .
-
-# the target defaults to the current directory, so this also works from the toolkit:
-py install.py "C:/path/to/target-repo"
-```
-
-`.` means "the current repo". The script finds the SOURCE from its own location
-and installs into `<target-repo>/.claude/`.
+The agent runs the `install-toolkit` skill, which calls `install.py`.
 
 ### Then
 
-**Restart Claude Code** in the target repo so it loads the new hooks and skills.
+**Restart the agent** so it picks up the new skills (and, for Claude Code, hooks).
 
 ---
 
-## What the installer does (and does not do)
+## What the installer does per agent
 
-- **Copies** `skills/`, `commands/`, `hooks/` into `<repo>/.claude/`.
-- **Merges** `settings.json`:
-  - unions `permissions.allow`, `permissions.deny`, `additionalDirectories`
-  - adds the toolkit's hooks (de-duped, so re-running never doubles them)
-  - keeps every setting the repo already had
-  - backs up the existing `settings.json` to `settings.json.bak-<timestamp>` first
-- **Is idempotent**: safe to re-run to update. It refreshes files and de-dupes.
-- **Never** deletes skills/commands the repo added itself, and never touches
-  anything outside `<repo>/.claude/`.
+| Agent | Skills go to | Also gets |
+|---|---|---|
+| **Claude Code** | `.claude/skills/` | `.claude/commands/`, `.claude/hooks/`, and a MERGED `.claude/settings.json` that wires the hooks |
+| **Cursor** | `.cursor/skills-cursor/` | `AGENTS.md` at the root (the rules the hooks enforce, as instructions) |
+| **Codex** | `.codex/skills/` | `AGENTS.md` at the root |
+
+- **Merges, never clobbers.** `settings.json` unions `permissions.allow`/`deny`/
+  `additionalDirectories` and adds the hooks, keeping everything the target had.
+  It backs up the old `settings.json` to `settings.json.bak-<timestamp>` first.
+- **Never overwrites an existing `AGENTS.md`** (if the repo already has one, it is
+  left alone; the rules also live in the skills).
+- **Is idempotent.** Safe to re-run to update: it refreshes files and de-dupes, so
+  it never doubles a hook or a permission.
+- **Only writes** under each agent's config dir (`.claude` / `.cursor` / `.codex`)
+  and the root `AGENTS.md`. It never deletes skills the target added itself.
+
+> **Why Cursor and Codex get `AGENTS.md` instead of hooks:** Claude Code's hooks
+> are Python scripts Claude runs before a tool call. Cursor and Codex do not run
+> them. So the toolkit gives those agents the same intent (no em dashes, do not
+> commit/push on your own, verify DB writes, do not swallow errors) as written
+> rules in `AGENTS.md`, which both agents read automatically.
 
 ---
 
@@ -124,21 +155,22 @@ file, e.g. `DB_RUNNER_SCRIPTS = ("run_sql.py",)`.
 
 ## Non-Windows machines
 
-The hooks are invoked as `py "..."` in `settings.json` and inside
-`pretooluse_powershell`-style comments. On macOS/Linux, `py` may not exist. Two
-options:
+The Claude Code hooks are invoked as `py "..."` in `settings.json`. On macOS/Linux
+`py` may not exist. Two options:
 
 1. Create a `py` shim: `alias py=python3` (or a small wrapper on PATH), or
-2. After installing, edit the target repo's `.claude/settings.json` and replace
-   `py ` with `python3 ` in each hook command.
+2. After installing, edit `.claude/settings.json` and replace `py ` with
+   `python3 ` in each hook command.
 
-`install.py` itself runs under either `py` or `python3`.
+`install.py` itself runs under either `py` or `python3`. (Cursor/Codex do not run
+the hooks, so this only affects Claude Code.)
 
 ---
 
 ## Uninstall
 
-Delete `<repo>/.claude/hooks/`, the toolkit's skills/commands you don't want, and
-restore `settings.json` from the `settings.json.bak-<timestamp>` the installer
-made. Since the toolkit lives entirely under `<repo>/.claude/`, removing it is
-local and reversible.
+Everything the installer wrote lives under the agent config dirs
+(`.claude` / `.cursor` / `.codex`) and the root `AGENTS.md`. To remove: delete the
+toolkit's skills from each agent's skills folder, delete `.claude/hooks/`, restore
+`.claude/settings.json` from its `settings.json.bak-<timestamp>`, and delete
+`AGENTS.md` if the toolkit created it. All of it is local and reversible.

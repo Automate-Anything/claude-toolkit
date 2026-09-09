@@ -1,31 +1,41 @@
 #!/usr/bin/env python3
 """
-install.py - install this .claude toolkit (skills + commands + hooks + settings)
-into a target repository, safely and idempotently.
+install.py - install this portable agent toolkit (skills + commands + hooks +
+cross-agent rules) for one or more coding agents, either GLOBALLY (every repo on
+this machine) or into a SPECIFIC repository. Safe and idempotent.
 
-WHAT IT DOES
-  - Copies  skills/  commands/  hooks/  into  <target>/.claude/
-  - MERGES  settings.json  into  <target>/.claude/settings.json  (never clobbers:
-    it unions permissions + additionalDirectories and adds our hooks, keeping
-    everything the target repo already had). A timestamped backup is made first.
-  - Is safe to re-run: copying refreshes files, the merge de-dupes.
+--------------------------------------------------------------------------------
+QUICK REFERENCE
 
-WHAT IT DOES NOT DO
-  - It does not touch anything outside <target>/.claude/.
-  - It does not delete skills/commands the target added on its own.
+  py install.py --global                 # all agents, this whole machine
+  py install.py .                        # all agents, the current repo
+  py install.py /path/to/repo            # all agents, that repo
+  py install.py --global --agent codex   # just Codex, globally
+  py install.py . --agent claude         # just Claude Code, current repo
 
-USAGE
-  # from inside the toolkit folder, install into the current repo:
-  py install.py /path/to/target-repo
+  --agent may be repeated or comma-listed: --agent claude,cursor
+  agents: claude | cursor | codex | all   (default: all)
+--------------------------------------------------------------------------------
 
-  # or, if you run it from inside the target repo and the toolkit is elsewhere:
-  py /path/to/toolkit/.claude/install.py .
+WHAT GETS INSTALLED, PER AGENT
 
-  # default target is the current working directory:
-  py install.py
+  Skills are the same SKILL.md format for every agent; only the directory differs:
+    claude -> <root>/.claude/skills
+    cursor -> <root>/.cursor/skills-cursor
+    codex  -> <root>/.codex/skills
 
-The SOURCE is the folder this script lives in. The TARGET is the repo you name
-(or the current directory). See README.md for the full guide.
+  Claude Code ALSO gets its commands/, hooks/, and a MERGED settings.json (which
+  wires the hooks and permissions). Cursor and Codex do not run Claude's hooks, so
+  instead they get an AGENTS.md carrying the same rules as instructions.
+
+  <root> is the user's home directory for --global, or the repo path otherwise.
+
+SAFE + IDEMPOTENT
+  - Never clobbers: settings.json is merged (unioned + de-duped), and a timestamped
+    backup is made first. AGENTS.md is only written if absent (never overwritten).
+  - Re-running refreshes files and de-dupes; it never doubles anything.
+  - Only ever writes under the agent's own config dir (.claude / .cursor / .codex)
+    and, for cursor/codex, an AGENTS.md at <root>.
 """
 import json
 import os
@@ -34,54 +44,91 @@ import sys
 from datetime import datetime
 
 SOURCE_DIR = os.path.dirname(os.path.abspath(__file__))
-COPY_DIRS = ("skills", "commands", "hooks")
 SETTINGS_FILE = "settings.json"
+
+# Per-agent config: where its config dir lives (relative to <root>) and where its
+# skills go inside that dir. Skills are portable across all three.
+AGENTS = {
+    "claude": {"dir": ".claude", "skills": "skills"},
+    "cursor": {"dir": ".cursor", "skills": "skills-cursor"},
+    "codex":  {"dir": ".codex",  "skills": "skills"},
+}
+ALL_AGENTS = list(AGENTS.keys())
 
 
 def log(msg):
     print(msg)
 
 
-def resolve_target(argv):
-    target = argv[1] if len(argv) > 1 else "."
-    target = os.path.abspath(target)
-    # If they pointed at a repo root, we install into <repo>/.claude.
-    # If they pointed straight at a .claude dir, use it as-is.
-    if os.path.basename(target) == ".claude":
-        return target
-    return os.path.join(target, ".claude")
+# --------------------------------------------------------------------------- #
+# Argument parsing
+# --------------------------------------------------------------------------- #
+def parse_args(argv):
+    agents, is_global, target_path = [], False, None
+    i = 1
+    while i < len(argv):
+        a = argv[i]
+        if a in ("--global", "-g"):
+            is_global = True
+        elif a in ("--agent", "-a"):
+            i += 1
+            agents += [x.strip().lower() for x in argv[i].split(",") if x.strip()]
+        elif a.startswith("--agent="):
+            agents += [x.strip().lower() for x in a.split("=", 1)[1].split(",") if x.strip()]
+        elif a in ("--help", "-h"):
+            print(__doc__)
+            sys.exit(0)
+        else:
+            target_path = a
+        i += 1
 
+    if not agents or "all" in agents:
+        agents = list(ALL_AGENTS)
+    unknown = [x for x in agents if x not in AGENTS]
+    if unknown:
+        log(f"Unknown agent(s): {', '.join(unknown)}. Valid: {', '.join(ALL_AGENTS)}, all.")
+        sys.exit(1)
+    # de-dupe, keep order
+    agents = list(dict.fromkeys(agents))
 
-def guard(target_claude):
-    """Refuse to install a toolkit into itself."""
-    if os.path.abspath(target_claude) == os.path.abspath(SOURCE_DIR):
-        log("Target is the toolkit's own folder. Nothing to do (this IS the source).")
+    if is_global and target_path:
+        log("Pass EITHER --global OR a repo path, not both.")
         sys.exit(1)
 
+    if is_global:
+        root = os.path.expanduser("~")
+    else:
+        root = os.path.abspath(target_path or ".")
 
-def copy_dirs(target_claude):
-    for d in COPY_DIRS:
-        src = os.path.join(SOURCE_DIR, d)
-        if not os.path.isdir(src):
+    return agents, root, is_global
+
+
+# --------------------------------------------------------------------------- #
+# Copying
+# --------------------------------------------------------------------------- #
+def copy_tree(src, dst):
+    """Copy every file under src into dst (skipping caches). Returns file count."""
+    if not os.path.isdir(src):
+        return 0
+    os.makedirs(dst, exist_ok=True)
+    n = 0
+    for root, _dirs, files in os.walk(src):
+        if "__pycache__" in root:
             continue
-        dst = os.path.join(target_claude, d)
-        os.makedirs(dst, exist_ok=True)
-        n = 0
-        for root, _dirs, files in os.walk(src):
-            # skip python caches
-            if "__pycache__" in root:
+        rel = os.path.relpath(root, src)
+        out_root = os.path.join(dst, rel) if rel != "." else dst
+        os.makedirs(out_root, exist_ok=True)
+        for f in files:
+            if f.endswith(".pyc"):
                 continue
-            rel = os.path.relpath(root, src)
-            out_root = os.path.join(dst, rel) if rel != "." else dst
-            os.makedirs(out_root, exist_ok=True)
-            for f in files:
-                if f.endswith(".pyc"):
-                    continue
-                shutil.copy2(os.path.join(root, f), os.path.join(out_root, f))
-                n += 1
-        log(f"  copied {d}/  ({n} files)")
+            shutil.copy2(os.path.join(root, f), os.path.join(out_root, f))
+            n += 1
+    return n
 
 
+# --------------------------------------------------------------------------- #
+# settings.json merge (Claude Code only)
+# --------------------------------------------------------------------------- #
 def _dedupe(seq):
     seen, out = set(), []
     for x in seq:
@@ -93,29 +140,23 @@ def _dedupe(seq):
 
 
 def _merge_permissions(base, incoming):
-    base = base or {}
-    inc = incoming or {}
+    base, inc = base or {}, incoming or {}
     out = dict(base)
     for key in ("allow", "deny", "additionalDirectories"):
         merged = list(base.get(key, [])) + list(inc.get(key, []))
         if merged:
             out[key] = _dedupe(merged)
-    # defaultMode: only set ours if the target hasn't chosen one.
     if "defaultMode" not in out and "defaultMode" in inc:
         out["defaultMode"] = inc["defaultMode"]
     return out
 
 
 def _hook_command(entry):
-    hooks = entry.get("hooks", [])
-    return tuple(sorted(h.get("command", "") for h in hooks))
+    return tuple(sorted(h.get("command", "") for h in entry.get("hooks", [])))
 
 
 def _merge_hooks(base, incoming):
-    """Union hook groups per event, de-duping by matcher+command so re-running
-    or installing over an existing toolkit never doubles a hook."""
-    base = base or {}
-    inc = incoming or {}
+    base, inc = base or {}, incoming or {}
     out = {k: list(v) for k, v in base.items()}
     for event, groups in inc.items():
         existing = out.setdefault(event, [])
@@ -128,32 +169,28 @@ def _merge_hooks(base, incoming):
     return out
 
 
-def merge_settings(target_claude):
+def merge_settings(claude_dir):
     src = os.path.join(SOURCE_DIR, SETTINGS_FILE)
     if not os.path.isfile(src):
         return
     with open(src, "r", encoding="utf-8") as f:
         incoming = json.load(f)
 
-    dst = os.path.join(target_claude, SETTINGS_FILE)
+    dst = os.path.join(claude_dir, SETTINGS_FILE)
+    base = {}
     if os.path.isfile(dst):
         with open(dst, "r", encoding="utf-8") as f:
             try:
                 base = json.load(f)
             except Exception:
                 base = {}
-        # back up the existing settings before we touch them
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        backup = f"{dst}.bak-{stamp}"
-        shutil.copy2(dst, backup)
-        log(f"  backed up existing settings -> {os.path.basename(backup)}")
-    else:
-        base = {}
+        shutil.copy2(dst, f"{dst}.bak-{stamp}")
+        log(f"    backed up existing settings.json -> settings.json.bak-{stamp}")
 
     merged = dict(base)
     merged["permissions"] = _merge_permissions(base.get("permissions"), incoming.get("permissions"))
     merged["hooks"] = _merge_hooks(base.get("hooks"), incoming.get("hooks"))
-    # carry over any other top-level keys we ship that the target lacks
     for k, v in incoming.items():
         if k not in ("permissions", "hooks") and k not in merged:
             merged[k] = v
@@ -161,24 +198,76 @@ def merge_settings(target_claude):
     with open(dst, "w", encoding="utf-8") as f:
         json.dump(merged, f, indent=2)
         f.write("\n")
-    log(f"  merged {SETTINGS_FILE}")
+    log("    merged settings.json")
+
+
+def write_agents_md(root):
+    """Place AGENTS.md at <root> for cursor/codex, only if not already present."""
+    src = os.path.join(SOURCE_DIR, "AGENTS.md")
+    if not os.path.isfile(src):
+        return
+    dst = os.path.join(root, "AGENTS.md")
+    if os.path.exists(dst):
+        log("    AGENTS.md already exists here - left untouched (rules also live in skills/)")
+        return
+    shutil.copy2(src, dst)
+    log("    wrote AGENTS.md (cross-agent rules)")
+
+
+# --------------------------------------------------------------------------- #
+# Per-agent install
+# --------------------------------------------------------------------------- #
+def install_agent(agent, root):
+    cfg = AGENTS[agent]
+    agent_dir = os.path.join(root, cfg["dir"])
+    log(f"  {agent}: {agent_dir}")
+
+    # 1. Skills (all agents).
+    n = copy_tree(os.path.join(SOURCE_DIR, "skills"), os.path.join(agent_dir, cfg["skills"]))
+    log(f"    copied {n} skill files -> {cfg['skills']}/")
+
+    if agent == "claude":
+        # 2. Commands + hooks (Claude Code only).
+        nc = copy_tree(os.path.join(SOURCE_DIR, "commands"), os.path.join(agent_dir, "commands"))
+        if nc:
+            log(f"    copied {nc} command file(s)")
+        nh = copy_tree(os.path.join(SOURCE_DIR, "hooks"), os.path.join(agent_dir, "hooks"))
+        if nh:
+            log(f"    copied {nh} hook file(s)")
+        # 3. Merge settings.json (wires the hooks + permissions).
+        merge_settings(agent_dir)
+    else:
+        # Cursor / Codex do not run Claude's hooks: carry the rules via AGENTS.md.
+        write_agents_md(root)
+
+
+def guard(agents, root, is_global):
+    """Refuse to install the toolkit on top of its own source folder."""
+    if not is_global:
+        claude_target = os.path.join(root, ".claude")
+        if os.path.abspath(claude_target) == os.path.abspath(SOURCE_DIR):
+            log("Target .claude is the toolkit's own source folder. Nothing to do.")
+            log("Run this from INSIDE the repo you want to install into, or pass --global.")
+            sys.exit(1)
 
 
 def main():
-    target_claude = resolve_target(sys.argv)
-    guard(target_claude)
-    os.makedirs(target_claude, exist_ok=True)
+    agents, root, is_global = parse_args(sys.argv)
+    guard(agents, root, is_global)
 
-    log(f"Installing toolkit")
+    scope = "GLOBALLY (every repo on this machine)" if is_global else f"into {root}"
+    log(f"Installing toolkit for [{', '.join(agents)}] {scope}")
     log(f"  from: {SOURCE_DIR}")
-    log(f"  into: {target_claude}")
-    copy_dirs(target_claude)
-    merge_settings(target_claude)
+    for agent in agents:
+        install_agent(agent, root)
 
     log("")
-    log("Done. Restart Claude Code in the target repo so it picks up the new")
-    log("hooks and skills. The skills that describe a system to build (error")
-    log("alerts, RLS, etc.) carry an 'adapt before use' note at the top.")
+    log("Done. Restart the agent(s) so they pick up the new skills.")
+    if "claude" in agents:
+        log("Claude Code also loaded the hooks (git-safety, no-em-dash, quality checks).")
+    if any(a in agents for a in ("cursor", "codex")):
+        log("Cursor/Codex read the rules from AGENTS.md and skills from their skills dir.")
+    log("Skills that describe a system to BUILD carry an 'adapt before use' note.")
 
 
 if __name__ == "__main__":
