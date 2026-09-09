@@ -28,7 +28,9 @@ one of:
 - **Already in this repo** at `.claude/install.py` (the user is updating in place).
 - **A sibling/known local path** the user keeps the toolkit at (ask if unsure;
   the common one is `c:\dev\.claude`).
-- **A git repo** the user cloned (the toolkit's own repository).
+- **A clone of the toolkit repo**: `https://github.com/getconversationalai/claude-toolkit`
+  (private). If it isn't on disk, clone it first:
+  `git clone https://github.com/getconversationalai/claude-toolkit C:/dev/claude-toolkit`
 
 Then run, from the repo you want to install INTO:
 

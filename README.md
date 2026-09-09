@@ -82,12 +82,12 @@ and installs into `<target-repo>/.claude/`.
 
 ## Keeping the toolkit somewhere your team can pull it (recommended)
 
-Put this folder in its own **git repo** (e.g. GitHub). Then any developer, in any
-project, can install or update it:
+This toolkit lives at **https://github.com/getconversationalai/claude-toolkit**
+(private). Any developer with access can install or update it in any project:
 
 ```bash
 # one-time: clone the toolkit somewhere
-git clone <toolkit-repo-url> C:/dev/claude-toolkit
+git clone https://github.com/getconversationalai/claude-toolkit C:/dev/claude-toolkit
 
 # in any project, install/update from that clone:
 py C:/dev/claude-toolkit/install.py .
