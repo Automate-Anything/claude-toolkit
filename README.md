@@ -117,12 +117,12 @@ The agent runs the `install-toolkit` skill, which calls `install.py`.
 
 ## Keeping the toolkit somewhere your team can pull it (recommended)
 
-This toolkit lives at **https://github.com/getconversationalai/claude-toolkit**
+This toolkit lives at **https://github.com/Automate-Anything/claude-toolkit**
 (private). Any developer with access can install or update it in any project:
 
 ```bash
 # one-time: clone the toolkit somewhere
-git clone https://github.com/getconversationalai/claude-toolkit C:/dev/claude-toolkit
+git clone https://github.com/Automate-Anything/claude-toolkit C:/dev/claude-toolkit
 
 # in any project, install/update from that clone:
 py C:/dev/claude-toolkit/install.py .

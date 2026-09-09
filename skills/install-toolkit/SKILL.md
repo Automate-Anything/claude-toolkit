@@ -15,9 +15,9 @@ the installer places them in each agent's own skills folder.
 Find the folder that contains `install.py`. It is one of:
 - **Already in this repo** at `.claude/install.py` (updating in place).
 - **A known local path** the user keeps it at (commonly `c:\dev\.claude`).
-- **A clone of the toolkit repo**: `https://github.com/getconversationalai/claude-toolkit`
+- **A clone of the toolkit repo**: `https://github.com/Automate-Anything/claude-toolkit`
   (private). If it is not on disk, clone it first:
-  `git clone https://github.com/getconversationalai/claude-toolkit C:/dev/claude-toolkit`
+  `git clone https://github.com/Automate-Anything/claude-toolkit C:/dev/claude-toolkit`
 
 ## Then pick the command
 
