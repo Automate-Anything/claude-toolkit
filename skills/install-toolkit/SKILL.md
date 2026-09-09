@@ -23,26 +23,29 @@ Find the folder that contains `install.py`. It is one of:
 
 There are two scopes. Ask the user which they want if it is not clear.
 
+By default it installs for **Claude Code only**. Include the others only if the
+user asks.
+
 **Global (every repo on this machine):**
 ```bash
 py "<toolkit>/install.py" --global
 ```
-Installs into `~/.claude`, `~/.cursor`, `~/.codex`.
+Installs into `~/.claude`.
 
 **One specific repository:**
 ```bash
 py "<toolkit>/install.py" .            # run from inside the repo
 py "<toolkit>/install.py" C:/path/to/repo
 ```
-Installs into that repo's `.claude`, `.cursor`, `.codex` (plus an `AGENTS.md` at
-the repo root for Cursor/Codex).
+Installs into that repo's `.claude`.
 
-**Pick specific agents (optional).** Default is all three. Narrow with `--agent`:
+**Include Cursor and/or Codex (only when the user asks).** Add `--agent`:
 ```bash
-py "<toolkit>/install.py" --global --agent claude
+py "<toolkit>/install.py" --global --agent all
 py "<toolkit>/install.py" . --agent cursor,codex
 ```
-Valid: `claude`, `cursor`, `codex`, `all`.
+Valid: `claude`, `cursor`, `codex`, `all`. Default: `claude` only. Including an
+agent also writes an `AGENTS.md` (repo root, or home dir for global) with the rules.
 
 ## What it does (safe + idempotent)
 

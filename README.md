@@ -39,14 +39,17 @@ There are **two commands**: install **globally** (applies to every repo on this
 machine) or install into **one specific repository**. Each works for all agents at
 once, or a single agent you name.
 
+By default it installs for **Claude Code only**. Add `--agent` to include Cursor
+and/or Codex.
+
 ### 1. Install globally (every repo on this machine)
 
 ```bash
 py /path/to/toolkit/install.py --global
 ```
 
-This installs into your home directory for each agent:
-`~/.claude/`, `~/.cursor/`, `~/.codex/`.
+This installs into `~/.claude/` (Claude Code). It does not touch your other agents
+unless you ask for them.
 
 ### 2. Install into a specific repository
 
@@ -58,18 +61,19 @@ py /path/to/toolkit/install.py .
 py /path/to/toolkit/install.py C:/path/to/repo
 ```
 
-This installs into that repo's `.claude/`, `.cursor/`, `.codex/` (plus an
-`AGENTS.md` at the repo root for Cursor/Codex).
+This installs into that repo's `.claude/` (Claude Code).
 
-### Pick specific agents (optional)
+### Include Cursor and/or Codex (opt in)
 
-By default it installs for **all** agents. To target one or some, add `--agent`:
+Add `--agent`. Skills then also land in that agent's skills folder, plus an
+`AGENTS.md` (at the repo root, or your home dir for `--global`) carrying the rules.
 
 ```bash
-py install.py --global --agent claude          # just Claude Code, globally
-py install.py . --agent cursor,codex           # Cursor + Codex, this repo
+py install.py --global --agent all             # all three agents, globally
+py install.py . --agent cursor                 # add Cursor to this repo
+py install.py . --agent claude,cursor,codex    # all three, this repo
 ```
-Valid agents: `claude`, `cursor`, `codex`, `all` (default).
+Valid agents: `claude`, `cursor`, `codex`, `all`. **Default: `claude` only.**
 
 ### Or just tell the agent
 

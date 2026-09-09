@@ -7,14 +7,14 @@ this machine) or into a SPECIFIC repository. Safe and idempotent.
 --------------------------------------------------------------------------------
 QUICK REFERENCE
 
-  py install.py --global                 # all agents, this whole machine
-  py install.py .                        # all agents, the current repo
-  py install.py /path/to/repo            # all agents, that repo
-  py install.py --global --agent codex   # just Codex, globally
-  py install.py . --agent claude         # just Claude Code, current repo
+  py install.py --global                 # Claude Code, this whole machine
+  py install.py .                        # Claude Code, the current repo
+  py install.py /path/to/repo            # Claude Code, that repo
+  py install.py --global --agent all     # all three agents, globally
+  py install.py . --agent cursor,codex   # Cursor + Codex, current repo
 
   --agent may be repeated or comma-listed: --agent claude,cursor
-  agents: claude | cursor | codex | all   (default: all)
+  agents: claude | cursor | codex | all   (DEFAULT: claude only)
 --------------------------------------------------------------------------------
 
 WHAT GETS INSTALLED, PER AGENT
@@ -82,8 +82,12 @@ def parse_args(argv):
             target_path = a
         i += 1
 
-    if not agents or "all" in agents:
+    if "all" in agents:
         agents = list(ALL_AGENTS)
+    elif not agents:
+        # Default: Claude Code only. Opt into the others with --agent cursor,codex
+        # (or --agent all). This keeps the other agents' folders untouched unless asked.
+        agents = ["claude"]
     unknown = [x for x in agents if x not in AGENTS]
     if unknown:
         log(f"Unknown agent(s): {', '.join(unknown)}. Valid: {', '.join(ALL_AGENTS)}, all.")
