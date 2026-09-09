@@ -44,6 +44,8 @@ Before doing work a skill covers, read that skill first. Highlights:
 - Stripe: `stripe-best-practices`, `stripe-docs`, `stripe-directory`,
   `stripe-projects`, `connect-recommend`, `upgrade-stripe`.
 - Design: `ui-ux-pro-max`.
+- Authoring: `skill-creator` (write, improve, and eval-test new skills; follow its house
+  conventions, including the no-em-dash rule).
 - `install-toolkit`: how to install/update this toolkit in a repo.
 
 Skills that describe a system to BUILD (error alerts, RLS, the money-truth

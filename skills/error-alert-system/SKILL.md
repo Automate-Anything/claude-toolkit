@@ -1,6 +1,6 @@
 ---
 name: error-alert-system
-description: A reusable DESIGN PATTERN for capturing, deduping, surfacing, and resolving errors so failures never go unseen - plus the operating rules for triaging alerts once such a system exists. This is a pattern to IMPLEMENT per repository, NOT a system that already exists; before referencing any file/table/function named here, VERIFY it exists in the current repo (grep first). Read it before wiring error reporting into a new code path, before adding a catch that swallows a failure and returns a fallback, before adding an alert/rule, before investigating a failure, and before resolving or silencing an alert. Use when the user mentions errors, alerts, error tracking, reportError, report(), fingerprint, dedupe, severity, silent/escalating alerts, "why did this fail," "it failed silently," "I didn't know it broke," or a job/call that died.
+description: A reusable DESIGN PATTERN for capturing, deduping, surfacing, and resolving errors so failures never go unseen - plus the operating rules for triaging alerts once such a system exists. Its Iron Law: always fix the CAUSE and the SOURCE of a problem, never the symptom (trace back to the origin; suppressing an alert without ending its cause is not a fix). This is a pattern to IMPLEMENT per repository, NOT a system that already exists; before referencing any file/table/function named here, VERIFY it exists in the current repo (grep first). Read it before wiring error reporting into a new code path, before adding a catch that swallows a failure and returns a fallback, before adding an alert/rule, before investigating a failure, and before resolving or silencing an alert. Use when the user mentions errors, alerts, error tracking, reportError, report(), fingerprint, dedupe, severity, silent/escalating alerts, "why did this fail," "it failed silently," "I didn't know it broke," or a job/call that died.
 ---
 
 # Error & Alert System (design pattern)
@@ -51,6 +51,29 @@ The load-bearing idea is a **three-level split** (names are illustrative):
 ---
 
 ## 1. THE PRACTICAL PLAYBOOK
+
+> ## THE IRON LAW: FIX THE CAUSE, NOT THE SYMPTOM
+> For EVERY alert, and every failure this system surfaces, always focus on the CAUSE and the
+> SOURCE of the problem, never the symptom. The alert, the error message, the broken screen, the
+> failed job: those are symptoms. Your job is to trace back to what actually went wrong and fix it
+> THERE.
+>
+> - **Trace to the source before you touch anything.** Where did the bad value / failure ORIGINATE?
+>   What called this with bad input? Keep tracing backward up the chain until you reach the true
+>   origin. Fix it at the origin, not where it happened to surface.
+> - **A fix that makes the alert stop but leaves the cause in place is not a fix.** Suppressing the
+>   symptom (a try/catch that swallows it, a re-tier to info, a resolve without a real change,
+>   special-casing the one input that tripped it) hides the problem instead of ending it. It will
+>   come back, usually somewhere harder to see.
+> - **When you find one instance, ask what CLASS it belongs to and close the class.** One
+>   null-check patched where it crashed is a symptom fix; finding why the value was ever null and
+>   making it impossible is a source fix. Prefer the source fix every time.
+> - **The self-test:** "Have I fixed the actual cause, or have I just made this symptom stop
+>   showing up?" If it is the second, you are not done. This is the difference between the problem
+>   being GONE and the problem being HIDDEN.
+>
+> Everything below (triage buckets, silence rules, resolve rules) sits UNDER this law: it tells you
+> WHICH cause you are dealing with and what to do about it, but the target is always the cause.
 
 ### 1a. Wire a new catch block (the common case)
 Every catch that would swallow a failure and return a fallback must surface it
