@@ -164,7 +164,7 @@ Extract key information from user request:
 **Always start with `--design-system`** to get comprehensive recommendations with reasoning:
 
 ```bash
-py "C:/Users/admin/.claude/skills/ui-ux-pro-max/scripts/search.py" "<product_type> <industry> <keywords>" --design-system [-p "Project Name"]
+py "<path-to-this-skill>/scripts/search.py" "<product_type> <industry> <keywords>" --design-system [-p "Project Name"]
 ```
 
 This command:
@@ -175,7 +175,7 @@ This command:
 
 **Example:**
 ```bash
-py "C:/Users/admin/.claude/skills/ui-ux-pro-max/scripts/search.py" "beauty spa wellness service" --design-system -p "Serenity Spa"
+py "<path-to-this-skill>/scripts/search.py" "beauty spa wellness service" --design-system -p "Serenity Spa"
 ```
 
 ### Step 2b: Persist Design System (Master + Overrides Pattern)
@@ -183,7 +183,7 @@ py "C:/Users/admin/.claude/skills/ui-ux-pro-max/scripts/search.py" "beauty spa w
 To save the design system for hierarchical retrieval across sessions, add `--persist`:
 
 ```bash
-py "C:/Users/admin/.claude/skills/ui-ux-pro-max/scripts/search.py" "<query>" --design-system --persist -p "Project Name"
+py "<path-to-this-skill>/scripts/search.py" "<query>" --design-system --persist -p "Project Name"
 ```
 
 This creates:
@@ -192,7 +192,7 @@ This creates:
 
 **With page-specific override:**
 ```bash
-py "C:/Users/admin/.claude/skills/ui-ux-pro-max/scripts/search.py" "<query>" --design-system --persist -p "Project Name" --page "dashboard"
+py "<path-to-this-skill>/scripts/search.py" "<query>" --design-system --persist -p "Project Name" --page "dashboard"
 ```
 
 This also creates:
@@ -208,7 +208,7 @@ This also creates:
 After getting the design system, use domain searches to get additional details:
 
 ```bash
-py "C:/Users/admin/.claude/skills/ui-ux-pro-max/scripts/search.py" "<keyword>" --domain <domain> [-n <max_results>]
+py "<path-to-this-skill>/scripts/search.py" "<keyword>" --domain <domain> [-n <max_results>]
 ```
 
 **When to use detailed searches:**
@@ -226,7 +226,7 @@ py "C:/Users/admin/.claude/skills/ui-ux-pro-max/scripts/search.py" "<keyword>" -
 Get implementation-specific best practices. If user doesn't specify a stack, **default to `html-tailwind`**.
 
 ```bash
-py "C:/Users/admin/.claude/skills/ui-ux-pro-max/scripts/search.py" "<keyword>" --stack html-tailwind
+py "<path-to-this-skill>/scripts/search.py" "<keyword>" --stack html-tailwind
 ```
 
 Available stacks: `html-tailwind`, `react`, `nextjs`, `vue`, `svelte`, `swiftui`, `react-native`, `flutter`, `shadcn`, `jetpack-compose`
@@ -280,7 +280,7 @@ Available stacks: `html-tailwind`, `react`, `nextjs`, `vue`, `svelte`, `swiftui`
 ### Step 2: Generate Design System (REQUIRED)
 
 ```bash
-py "C:/Users/admin/.claude/skills/ui-ux-pro-max/scripts/search.py" "beauty spa wellness service elegant" --design-system -p "Serenity Spa"
+py "<path-to-this-skill>/scripts/search.py" "beauty spa wellness service elegant" --design-system -p "Serenity Spa"
 ```
 
 **Output:** Complete design system with pattern, style, colors, typography, effects, and anti-patterns.
@@ -289,16 +289,16 @@ py "C:/Users/admin/.claude/skills/ui-ux-pro-max/scripts/search.py" "beauty spa w
 
 ```bash
 # Get UX guidelines for animation and accessibility
-py "C:/Users/admin/.claude/skills/ui-ux-pro-max/scripts/search.py" "animation accessibility" --domain ux
+py "<path-to-this-skill>/scripts/search.py" "animation accessibility" --domain ux
 
 # Get alternative typography options if needed
-py "C:/Users/admin/.claude/skills/ui-ux-pro-max/scripts/search.py" "elegant luxury serif" --domain typography
+py "<path-to-this-skill>/scripts/search.py" "elegant luxury serif" --domain typography
 ```
 
 ### Step 4: Stack Guidelines
 
 ```bash
-py "C:/Users/admin/.claude/skills/ui-ux-pro-max/scripts/search.py" "layout responsive form" --stack html-tailwind
+py "<path-to-this-skill>/scripts/search.py" "layout responsive form" --stack html-tailwind
 ```
 
 **Then:** Synthesize design system + detailed searches and implement the design.
@@ -311,10 +311,10 @@ The `--design-system` flag supports two output formats:
 
 ```bash
 # ASCII box (default) - best for terminal display
-py "C:/Users/admin/.claude/skills/ui-ux-pro-max/scripts/search.py" "fintech crypto" --design-system
+py "<path-to-this-skill>/scripts/search.py" "fintech crypto" --design-system
 
 # Markdown - best for documentation
-py "C:/Users/admin/.claude/skills/ui-ux-pro-max/scripts/search.py" "fintech crypto" --design-system -f markdown
+py "<path-to-this-skill>/scripts/search.py" "fintech crypto" --design-system -f markdown
 ```
 
 ---
