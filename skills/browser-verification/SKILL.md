@@ -1,6 +1,6 @@
 ---
 name: browser-verification
-description: How to open and drive a real browser via the chrome-devtools MCP to verify anything visual or interactive. Read this BEFORE any task where you open a page, click through a flow, fill a form, take a screenshot, read the console, inspect network requests, or confirm a UI actually renders/works. It covers which URL to open, that every session gets its OWN isolated browser, how to handle login walls (open the page, ask the user to log into YOUR window), and how to recover if the browser won't open. Use when the user says "check it in the browser," "open the page," "open it for me," "show me," "take a screenshot," "verify the UI," "see if it renders," "click through," or anything needing a live browser.
+description: How to open and drive a real browser via the chrome-devtools MCP to verify anything visual or interactive. Read this BEFORE any task where you open a page, click through a flow, fill a form, take a screenshot, read the console, inspect network requests, or confirm a UI actually renders/works. It covers which URL to open, that every session gets its OWN isolated browser, how to handle login walls (open the page, ask the user to log into YOUR window), and how to recover if the browser won't open. It ALSO covers the opposite case: opening a page or local .html file in the USER'S OWN logged-in default browser with one shell command, and how to tell which browser or Chrome profile to target when several are open. Use when the user says "check it in the browser," "open the page," "open it for me," "show me," "open it in my browser," "take a screenshot," "verify the UI," "see if it renders," "click through," or anything needing a live browser.
 ---
 
 # Browser Verification (Chrome DevTools MCP)
@@ -11,10 +11,15 @@ setup. It launches with `--isolated`. Its tools are named `mcp__chrome-devtools_
 `press_key`, `take_screenshot`, `take_snapshot`, `list_console_messages`,
 `list_network_requests`, `evaluate_script`, `wait_for`.
 
-When the user says "open it for me," "the Chrome extension," "show me," or "check
-it in the browser," they mean **this MCP**. Use it directly. Do NOT drive a
-browser through Bash/curl/Playwright unless explicitly told to - those don't let
-the user SEE anything, and seeing is usually the point.
+When the user says "the Chrome extension" or "check it in the browser," they mean
+**this MCP**. Use it directly. Do NOT drive a browser through Bash/curl/Playwright
+unless explicitly told to.
+
+"Open it for me" and "show me" can mean either thing. If YOU need to verify the
+page, use this MCP. If the USER needs the page in front of them in their own
+logged-in browser, open it there with a single shell command: see "Opening a page
+in the USER'S OWN default browser" below, including how to pick the right one
+when several browsers or profiles are open.
 
 > **If the `mcp__chrome-devtools__*` tools are not in your tool list:** the MCP
 > hasn't loaded into this session yet (it loads at session start). Tell the user
@@ -81,6 +86,10 @@ login screen:
 Never reuse another agent's session. If the user would rather you not proceed,
 respect that.
 
+If the user only needs to LOOK at the page themselves (you do not need to drive
+it), skip the login wall entirely: open it in their own browser, where they are
+already logged in. See "Opening a page in the USER'S OWN default browser" below.
+
 > **Sensitive data:** if a project handles private/regulated data (health,
 > financial, personal), don't paste that data into chat, commits, or externally
 > shared screenshots. Screenshots handed back to the user are fine; treat them as
@@ -99,6 +108,170 @@ respect that.
    `list_network_requests` (4xx/5xx) - not just eyeballing.
 6. Report with **evidence** (screenshot, console text, failing request), not just
    "it works."
+
+## Opening a page in the USER'S OWN default browser
+
+Everything above is about the isolated browser YOU drive through the MCP. That
+browser is yours: the user cannot see it, and it has none of their logins, tabs,
+or clipboard. Sometimes the goal is the opposite: the user needs the page in
+front of THEM, in the browser they already use and are already logged into, so
+they can look at it, copy from it, or sign in themselves. Do not try to do that
+through the MCP browser, and do not tell the user to go find and open a file.
+Open it for them.
+
+### When to use which
+
+| The goal | Use |
+|---|---|
+| YOU need to inspect, click, screenshot, or read the console/network | The isolated chrome-devtools browser (the rest of this skill) |
+| The USER needs to see it, copy from it, or use their own logged-in account | Their own browser, with the commands below |
+| Both (very common) | Verify in the isolated browser first, then open it for the user |
+
+### The method (Windows)
+
+One shell command. Windows' `start` hands the target to whatever app is
+registered for it, which for a web page or an `.html` file is the user's default
+browser. It opens as a new tab in their existing window.
+
+From the Bash tool (Git Bash):
+
+```bash
+cmd.exe //c start "" "C:\path\to\page.html"
+cmd.exe //c start "" "https://example.com/page"
+```
+
+From the PowerShell tool:
+
+```powershell
+Start-Process "C:\path\to\page.html"
+Start-Process "https://example.com/page"
+```
+
+Details that make it work:
+
+- In Git Bash the switch is `//c`, with two slashes. A single `/c` gets rewritten
+  into a file path by Git Bash and the command fails.
+- The empty `""` right after `start` is required. `start` treats the first quoted
+  argument as a window title, so without it a quoted path is taken as the title
+  and nothing opens.
+- Use an absolute path, in Windows form with backslashes, inside quotes.
+- To force a fresh load of a local file the user already has open, pass it as a
+  URL with a throwaway query string:
+  `cmd.exe //c start "" "file:///C:/path/to/page.html?v=2"`
+- The command returns immediately and prints nothing. It cannot tell you whether
+  the page rendered. Ask the user what they see, or verify the same page
+  separately in the isolated MCP browser.
+- macOS equivalent: `open "path-or-url"`. Linux: `xdg-open "path-or-url"`.
+
+### More than one browser or profile: work out which one BEFORE you open
+
+A plain `start` lands in the DEFAULT browser, in the profile of whichever of its
+windows was focused most recently. When the user runs several Chrome profiles
+(each signed into a different account) or several browsers, that can be the wrong
+one: the page opens logged out, or logged in as the wrong account, which defeats
+the whole point. So look first. All three checks are read-only. Run them from the
+PowerShell tool.
+
+**1. Which browser is the default** (this is where a plain `start` goes):
+
+```powershell
+$p = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice').ProgId
+$p
+(Get-ItemProperty "Registry::HKEY_CLASSES_ROOT\$p\shell\open\command").'(default)'
+```
+
+`ChromeHTML` = Chrome, `MSEdgeHTM` = Edge, `FirefoxURL-...` = Firefox,
+`BraveHTML` = Brave.
+
+**2. Which browsers are actually open right now:**
+
+```powershell
+Get-Process chrome,msedge,firefox,brave -ErrorAction SilentlyContinue |
+  Where-Object MainWindowTitle | Select-Object Name, MainWindowTitle
+```
+
+You get one row per running browser (not per window), with the title of its
+current window. The title often names the signed-in account (a Gmail tab shows
+the address), which is a strong hint. The command exits 1 when one of the listed
+browsers is not running; that is expected, read the output anyway.
+
+**3. Which profiles exist, and which one is active:**
+
+```powershell
+$ls = Get-Content "$env:LOCALAPPDATA\Google\Chrome\User Data\Local State" -Raw -Encoding UTF8 | ConvertFrom-Json
+$ls.profile.last_used              # the profile a plain `start` will land in
+$ls.profile.last_active_profiles   # normally the profiles that have a window open
+$ls.profile.info_cache.PSObject.Properties | ForEach-Object {
+  [pscustomobject]@{ Dir = $_.Name; Name = $_.Value.name; Account = $_.Value.user_name }
+}
+```
+
+`Dir` is the folder name (`Default`, `Profile 3`, ...) and is what you target
+with. `Name` is the label the user sees in Chrome's profile picker. `Account` is
+the signed-in Google account. Other Chromium browsers keep the same file in their
+own folder: Edge at `$env:LOCALAPPDATA\Microsoft\Edge\User Data\Local State`,
+Brave at `$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data\Local State`.
+
+**4. Decide, in this order:**
+
+1. The user named a browser or profile: use that one.
+2. The page needs a specific account (an admin console, a mailbox, a workspace
+   app): pick the profile whose `Account` or `Name` matches it.
+3. The right profile is the same as `last_used`, in the default browser: a plain
+   `start` is already correct, use it.
+4. The right profile is a different one: target it explicitly (below).
+5. You cannot tell which account the page needs: ask the user in chat, naming the
+   two or three candidate profiles by `Name`. Do not guess. A wrong guess opens a
+   logged-out page in a window the user was not looking at.
+
+**5. Target a specific browser or profile explicitly:**
+
+```powershell
+# A specific Chrome profile (use the Dir value, NOT the display Name)
+Start-Process chrome -ArgumentList '--profile-directory="Profile 3"', '"https://example.com/page"'
+
+# A specific browser that is not the default
+Start-Process msedge "https://example.com/page"
+Start-Process msedge -ArgumentList '--profile-directory="Default"', '"https://example.com/page"'
+```
+
+`chrome` and `msedge` resolve by short name because Windows registers them under
+App Paths. If that profile already has a window open the page becomes a new tab
+in it; if not, Chrome opens a window for that profile. Use the PowerShell tool
+for profile targeting: the nested quotes around a profile folder with a space in
+it do not survive Git Bash reliably.
+
+**Privacy:** the profile list contains the user's personal account addresses. Use
+it to decide, and name only the candidates when you have to ask. Never paste the
+whole list into chat, a doc, a commit, a log, or an error report.
+
+### Related trick: putting formatted content on the user's clipboard
+
+When the user needs to paste rich content (an email signature, a formatted table)
+and copying from a page is error-prone, the PowerShell tool can put it on their
+clipboard as formatted content, not as code:
+
+```powershell
+Set-Clipboard -AsHtml -Value $htmlFragment
+```
+
+This works in Windows PowerShell 5.1. Pass only the fragment (for example the
+`<table>...</table>`), not a whole HTML document. Warn the user first, because it
+overwrites whatever they had copied.
+
+### Cautions
+
+- This acts on the user's real desktop. Only do it when the user asked to see
+  something, or clearly expects it. Never open pages unprompted.
+- Never open a URL that carries a secret or token in it: it lands in their
+  browser history.
+- Opening a production page for the user to look at is fine. You still never
+  perform write, charge, or send actions there.
+- You cannot click, read, or screenshot the user's browser. If you need to
+  observe the page, that is the isolated MCP browser's job.
+- Images referenced by a local page still load from the network. If a remote
+  image was requested before it went live, the browser may have cached the
+  failure. Give the image URL a new query string to bypass it.
 
 ## If the browser won't open: the ONE error to recognize
 

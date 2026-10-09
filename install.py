@@ -173,12 +173,33 @@ def _merge_hooks(base, incoming):
     return out
 
 
-def merge_settings(claude_dir):
+PROJECT_HOOK_PREFIX = "${CLAUDE_PROJECT_DIR}/.claude/"
+HOME_HOOK_PREFIX = "$HOME/.claude/"
+
+
+def _retarget_hooks_to_home(settings):
+    """Return a copy of settings with hook commands pointing at ~/.claude."""
+    out = json.loads(json.dumps(settings))
+    for groups in (out.get("hooks") or {}).values():
+        for g in groups:
+            for h in g.get("hooks", []):
+                if "command" in h:
+                    h["command"] = h["command"].replace(PROJECT_HOOK_PREFIX, HOME_HOOK_PREFIX)
+    return out
+
+
+def merge_settings(claude_dir, is_global=False):
     src = os.path.join(SOURCE_DIR, SETTINGS_FILE)
     if not os.path.isfile(src):
         return
     with open(src, "r", encoding="utf-8") as f:
         incoming = json.load(f)
+    if is_global:
+        # Hook commands in settings.json address the repo's own .claude via
+        # ${CLAUDE_PROJECT_DIR}. For a global install the hooks live in
+        # ~/.claude, so point them there instead; otherwise every repo without
+        # the toolkit would fail to find the hook scripts.
+        incoming = _retarget_hooks_to_home(incoming)
 
     dst = os.path.join(claude_dir, SETTINGS_FILE)
     base = {}
@@ -221,7 +242,7 @@ def write_agents_md(root):
 # --------------------------------------------------------------------------- #
 # Per-agent install
 # --------------------------------------------------------------------------- #
-def install_agent(agent, root):
+def install_agent(agent, root, is_global=False):
     cfg = AGENTS[agent]
     agent_dir = os.path.join(root, cfg["dir"])
     log(f"  {agent}: {agent_dir}")
@@ -239,7 +260,7 @@ def install_agent(agent, root):
         if nh:
             log(f"    copied {nh} hook file(s)")
         # 3. Merge settings.json (wires the hooks + permissions).
-        merge_settings(agent_dir)
+        merge_settings(agent_dir, is_global)
     else:
         # Cursor / Codex do not run Claude's hooks: carry the rules via AGENTS.md.
         write_agents_md(root)
@@ -263,7 +284,7 @@ def main():
     log(f"Installing toolkit for [{', '.join(agents)}] {scope}")
     log(f"  from: {SOURCE_DIR}")
     for agent in agents:
-        install_agent(agent, root)
+        install_agent(agent, root, is_global)
 
     log("")
     log("Done. Restart the agent(s) so they pick up the new skills.")
