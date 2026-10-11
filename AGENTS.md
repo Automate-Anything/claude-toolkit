@@ -47,7 +47,7 @@ Before doing work a skill covers, read that skill first. Highlights:
 - Product animation: `product-animation-core` (read first), then
   `product-animation-website` (silent looping mockups on a site) or
   `product-animation-social-video` (voiced, captioned product-UI videos).
-- Video: `ai-video-production` (films and ads from AI-generated footage).
+- Video: `ai-video-production` (films and ads with generated footage).
 - Authoring: `skill-creator` (write, improve, and eval-test new skills; follow its house
   conventions, including the no-em-dash rule).
 - `install-toolkit`: how to install/update this toolkit in a repo.

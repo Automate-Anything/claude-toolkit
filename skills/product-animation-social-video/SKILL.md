@@ -72,6 +72,12 @@ The 4:5, 1:1 and 16:9 versions get their own layouts, not letterboxing: text and
 - Long lines step down in size: over 50 characters ×0.88, over 62 ×0.8.
 - Leave **at least 40px** between the chip and the caption text (32px at 1:1). Users notice cramped spacing on phones.
 - A cream plate fades behind the caption area so the scrolling UI never collides with text.
+- **Text and SMS threads are never voiced.** Voicing texts makes them read as a phone call (user feedback). Only the narrator speaks.
+  - Time each message by reading time (`0.5s + words ÷ 3.5`), not by voice.
+  - Show the newest message in the caption as a message bubble: incoming in a light bubble, the AI's reply in the accent color. Use chips like "Text from Ava" and "AI replied" instead of call-style speaker chips.
+  - In the product scene, typing dots run for about 1s before each message lands, and the AI's replies write out quickly.
+  - Sound: a soft message ping for incoming texts and a short "sent" swoosh for the AI's replies, instead of phone rings.
+  - The opening's trigger object is a lock-screen message notification with a Reply button, which the AI taps ("Replied by AI").
 
 ## 6. Design rules for opening and end slides (from real feedback)
 
@@ -133,6 +139,7 @@ The 4:5, 1:1 and 16:9 versions get their own layouts, not letterboxing: text and
 - **Iris:** a quiet band-passed noise whoosh.
 - **Win:** two-note bell chime (C6 + G6 with harmonics).
 - **End card:** whoosh plus a small CTA pop.
+- **Text threads:** a two-note message ping (E6 then A6, short decay) for incoming texts, and a rising band-passed noise swoosh plus a light blip for sent texts. No rings.
 - **Music bed:**
   - warm pad + eighth-note pluck arpeggio, about 100bpm (Fmaj7, Dm7, Bbmaj7, Cmaj7), low-passed at 3.8kHz;
   - fades in at accept and out over the last 1.4s.
