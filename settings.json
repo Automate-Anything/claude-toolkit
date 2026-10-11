@@ -52,15 +52,6 @@
             "command": "bash -c 'py \"${CLAUDE_PROJECT_DIR}/.claude/hooks/pretooluse_code.py\"'"
           }
         ]
-      },
-      {
-        "matcher": "(AskUserQuestion|mcp__.*__AskUserQuestion)",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'py \"${CLAUDE_PROJECT_DIR}/.claude/hooks/pretooluse_askuserquestion.py\"'"
-          }
-        ]
       }
     ],
     "Stop": [

@@ -22,7 +22,7 @@ This folder IS the toolkit. `install.py` copies it where each agent looks.
 |---|---|
 | `skills/` | The skill library (one folder per skill, each with a `SKILL.md`). Portable across Claude Code, Cursor, and Codex. |
 | `commands/` | Slash commands (e.g. `/problem-cause-solution`). Claude Code. |
-| `hooks/` | PreToolUse + Stop hooks (git-safety gate, no-em-dash, AskUserQuestion block, code-quality/security checks). Claude Code only. Self-contained, no global setup needed. |
+| `hooks/` | PreToolUse + Stop hooks (git-safety gate, no-em-dash, code-quality/security checks). Claude Code only. Self-contained, no global setup needed. |
 | `settings.json` | Claude Code settings that wire the hooks and set permissions. The installer MERGES this, it does not clobber. |
 | `AGENTS.md` | The same rules as the hooks, written as instructions, for agents that do not run Claude's hooks (Cursor, Codex). |
 | `install.py` | The installer. Handles all agents and both scopes (global / one repo). |

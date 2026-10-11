@@ -20,8 +20,10 @@ here they are written as instructions so every agent follows them.
   pull the LIVE schema of every table/function/trigger it touches and verify your
   SQL against it byte for byte. Migration files and memory drift; only the live
   database is truth.
-- **Do not ask via a popup/interactive question tool.** Ask your questions as
-  plain text in the chat and wait for the reply.
+- **Ask one question at a time, as multiple choice.** Give each option its
+  trade-off and put your recommended option first. Use the agent's question
+  popup when it has one; otherwise ask in the chat with lettered options and
+  wait for the reply.
 - **A swallowed error must be surfaced.** A catch block or DB exception handler in
   a backend path (webhook, cron, route, job) that logs but never reports the
   failure is a silent production bug. Report it, or mark it a conscious benign
