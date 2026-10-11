@@ -44,6 +44,10 @@ Before doing work a skill covers, read that skill first. Highlights:
 - Stripe: `stripe-best-practices`, `stripe-docs`, `stripe-directory`,
   `stripe-projects`, `connect-recommend`, `upgrade-stripe`.
 - Design: `ui-ux-pro-max`.
+- Product animation: `product-animation-core` (read first), then
+  `product-animation-website` (silent looping mockups on a site) or
+  `product-animation-social-video` (voiced, captioned product-UI videos).
+- Video: `ai-video-production` (films and ads from AI-generated footage).
 - Authoring: `skill-creator` (write, improve, and eval-test new skills; follow its house
   conventions, including the no-em-dash rule).
 - `install-toolkit`: how to install/update this toolkit in a repo.
