@@ -1,0 +1,103 @@
+# Evolution API - self-hosted WhatsApp (companion-device via Baileys).
+# This compose is for LOCAL testing + as the reference for the Render service.
+# On Render you deploy the `evoapicloud/evolution-api` image as a single web service
+# and point DATABASE_URL / CACHE_REDIS_URI at a Render Postgres + Render Key-Value.
+# (The old `atendai/evolution-api` image is DELISTED; live service is
+# `evolution-api-whatsapp`, see evolution/ISOLATED_TEST_RIG.md.)
+#
+# Bring it up locally:
+#   cd evolution && docker compose up -d
+# Then Evolution is at http://localhost:8080 (apikey = AUTHENTICATION_API_KEY).
+#
+# ⚠️ Sessions live in Postgres. NEVER wipe the DB volume in production - every
+# merchant would have to re-scan their QR. Use a managed, backed-up Postgres.
+
+services:
+  evolution-api:
+    # evoapicloud is the maintained fork (atendai is delisted, and its v2.2.3 is
+    # too old to pair a device now). Pin by digest, not :latest, so a surprise
+    # upgrade never drops sessions; bump deliberately after testing. This digest
+    # is the v2.3.7 image currently live on Render.
+    image: evoapicloud/evolution-api@sha256:966625532d9076a2381e973a271307d107e6f070450de3abeeea8bd18be07252
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      # ── Auth ────────────────────────────────────────────────────────────
+      # The global admin apikey. billing-server sends this as the `apikey`
+      # header (config.evolutionApiKey). Generate a long random value.
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+
+      # ── Server ──────────────────────────────────────────────────────────
+      SERVER_URL: ${EVOLUTION_SERVER_URL:-http://localhost:8080}
+      # REQUIRED: a CURRENT WhatsApp-Web version, else the device link is rejected
+      # ("couldn't link device"). Bump whenever WhatsApp rotates it.
+      CONFIG_SESSION_PHONE_VERSION: ${CONFIG_SESSION_PHONE_VERSION:-2.3000.1043857760}
+
+      # ── Persistence: Postgres (sessions + message store) ────────────────
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      # Defaults to the local postgres service; override with DATABASE_URL in prod.
+      DATABASE_CONNECTION_URI: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/evolution}
+      DATABASE_CONNECTION_CLIENT_NAME: evolution_app
+      # Persist what we actually rely on. Instances + sessions are mandatory;
+      # message history in Evolution's own DB is optional (we store our own),
+      # so keep it lean to save space.
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      # REQUIRED true: with false, Evolution keeps no message and inbound
+      # media/voice download fails ("Message not found"). See ISOLATED_TEST_RIG
+      # finding 3. (We still store our own message history; this is Evolution's
+      # short-lived copy needed to fetch media by id.)
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "false"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "false"
+
+      # ── Cache: Redis (connection state, fast lookups) ───────────────────
+      CACHE_REDIS_ENABLED: "true"
+      # Defaults to the local redis service; override with CACHE_REDIS_URI in prod.
+      CACHE_REDIS_URI: ${CACHE_REDIS_URI:-redis://redis:6379}
+      CACHE_REDIS_PREFIX_KEY: evolution_bp
+      CACHE_REDIS_SAVE_INSTANCES: "true"
+      CACHE_LOCAL_ENABLED: "false"
+
+      # ── Webhook defaults (per-instance webhook is set at create time by
+      #    billing-server, so a global default is only a safety net) ────────
+      WEBHOOK_GLOBAL_ENABLED: "false"
+
+      # ── Instance behavior ───────────────────────────────────────────────
+      # Don't let Evolution delete instances on its own; billing-server owns the
+      # lifecycle (create/delete) so our DB stays the source of truth.
+      DEL_INSTANCE: "false"
+      # Reject QR after N retries so a never-scanned instance doesn't spin forever.
+      QRCODE_LIMIT: "30"
+      # Keep logs useful but not noisy.
+      LOG_LEVEL: ERROR
+      LOG_COLOR: "false"
+    depends_on:
+      - postgres
+      - redis
+
+  # ── Local-only Postgres + Redis. In PRODUCTION do NOT use these; point
+  #    DATABASE_URL / CACHE_REDIS_URI at Render's managed Postgres + Key-Value
+  #    so sessions are backed up. These two services exist only so a single
+  #    `docker compose up` gives you a working local Evolution to test against.
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: evolution
+    volumes:
+      - evolution_pg:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    volumes:
+      - evolution_redis:/data
+
+volumes:
+  evolution_pg:
+  evolution_redis:

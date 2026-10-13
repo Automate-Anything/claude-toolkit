@@ -1,0 +1,25 @@
+# voice-rt: the self-hosted Pipecat voice runtime (replaces Retell's realtime loop).
+# Pinned to the Pipecat release the runtime was written against (API verified
+# 2026-09-22 against docs.pipecat.ai + the 1.11.0 source). Bump deliberately:
+# Pipecat renames APIs between minors.
+pipecat-ai[websocket,deepgram,openai,elevenlabs,cartesia,anthropic,google]==1.11.0
+
+# Web server (the media WebSocket + the small control API)
+fastapi>=0.115.6,<1
+uvicorn[standard]>=0.34.0,<1
+pydantic>=2.10.0,<3
+pydantic-settings>=2.7.0,<3
+
+# HTTP client to app-server (session bootstrap, tool calls, end-of-call)
+httpx>=0.28.0,<1
+
+# Structured logs (JSON in production)
+structlog>=24.1.0
+
+# Audio helpers (WAV assembly for the recording upload)
+numpy>=1.26.0
+
+# Backchanneling ("mhm"/"yeah" while the caller talks), community BSD-2 package,
+# compatible with pipecat-ai 1.x. Clips are synthesized in the bot's own TTS voice
+# and cached. Frequency is tuned LOW (owner: "not so often, it's annoying").
+pipecat-backchannel>=0.3.3,<0.4

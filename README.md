@@ -3,10 +3,15 @@
 A portable set of **skills**, **slash commands**, **safety hooks**, and
 **cross-agent rules** that you install for any coding agent, either globally (every
 repo on your machine) or into one specific repository. Once installed, the agent
-already knows your reusable systems (error-alert design, RLS security, query/page
-performance, the money-truth doctrine, SEO, the review standards, and more) and
-follows the same rules (no accidental commits/pushes/tree-destroys, no em dashes,
-verify a DB write against the live schema first).
+already knows how the owner thinks and works, already knows your reusable systems
+(error-alert design, RLS security, query/page performance, the money-truth
+doctrine, SEO, the review standards, and more), and follows the same rules (no
+accidental commits/pushes/tree-destroys, no em dashes, verify a DB write against
+the live schema first, decide instead of asking when the answer is derivable).
+
+The point of the toolkit: nothing learned in one project has to be rewritten in the
+next. Every lesson that is not tied to a single product lives here, so a new
+project starts with an agent that already knows the owner and the way he builds.
 
 It works for **Claude Code, Cursor, and Codex** (and any other agent that reads an
 `AGENTS.md`). Skills use the same `SKILL.md` format all three understand; the
@@ -24,9 +29,37 @@ This folder IS the toolkit. `install.py` copies it where each agent looks.
 | `commands/` | Slash commands (e.g. `/problem-cause-solution`). Claude Code. |
 | `hooks/` | PreToolUse + Stop hooks (git-safety gate, no-em-dash, code-quality/security checks). Claude Code only. Self-contained, no global setup needed. |
 | `settings.json` | Claude Code settings that wire the hooks and set permissions. The installer MERGES this, it does not clobber. |
-| `AGENTS.md` | The same rules as the hooks, written as instructions, for agents that do not run Claude's hooks (Cursor, Codex). |
+| `AGENTS.md` | The owner's standing rules (the ones the hooks enforce, plus his working agreements) and the skill index by category, written as instructions. Cursor and Codex read it in place of the hooks. |
+| `CLAUDE.template.md` | The starter `CLAUDE.md` for a new repository: the owner's standing rules, the database gate, the git rules, a which-skill-to-read-when table, and a project-facts section for the first agent to fill in. The installer writes it to the repo root as `CLAUDE.md` when the repo has none, and never overwrites an existing one. |
 | `install.py` | The installer. Handles all agents and both scopes (global / one repo). |
 | `README.md` | This file. |
+
+### What the skill library covers
+
+`AGENTS.md` holds the full index by category. In short:
+
+| Area | What is in it |
+|---|---|
+| The owner | How he thinks, decides, writes, and what he counts as done (`how-the-founder-thinks`, `founders-style`, `working-with-the-owner`, `working-agreements`). Read these first in a new project. |
+| Standards library | About 40 `standard-*` skills (security, config and secrets, design system, accessibility, API and database design, testing, CI/CD, backups, privacy, mobile apps, and more). `standards-index` lists them all. |
+| Engineering discipline | Performance, query efficiency, RLS, auth, URL structure, timezones, verifying before calling something done, safe database writes, debugging. |
+| Money systems | The money-truth doctrine, POS checkout, payment processor integration, SaaS subscriptions, commissions, memberships and packages, reports. |
+| AI agents | Internal write-agents, the model/feature platform, multi-agent assistants, AI data migration. |
+| Phone, voice, messaging | Retell and self-hosted voice agents, voice prompting, number provisioning, WhatsApp (managed and self-hosted), proxies, email. |
+| Running a product | Support triage, help center upkeep, onboarding, public API upkeep, ticketing, website builder, release emails. |
+| Deploy and devices | Release sequence, deploy freshness, maintenance banner, alert patrol, iOS from Windows, Android, Tauri desktop, GPU runs. |
+| Design, motion, mobile | UI/UX, Apple design review, the taste skills, motion and animation, mobile view optimization, product animation, video. |
+| Growth | SEO, local SEO, the Google Ads set. |
+| Third-party packs | The Stripe skills and a planning/debugging/TDD process pack. |
+
+**Where the skills came from.** Many were extracted from skills and rule files
+written inside specific projects, then rewritten to drop product names, paths, and
+identifiers while keeping the lessons. When you learn something reusable in a
+project, add it here (see the `skill-creator` skill) instead of leaving it in that
+project's own skills folder.
+
+**Never put secrets or account identifiers in a skill.** Refer to them by
+environment variable name or file path only.
 
 The hooks require **Python on PATH as `py`** (Windows) or adjust to `python3`
 (macOS/Linux). See "Non-Windows" below. `install.py` runs under either.
@@ -93,7 +126,7 @@ The agent runs the `install-toolkit` skill, which calls `install.py`.
 
 | Agent | Skills go to | Also gets |
 |---|---|---|
-| **Claude Code** | `.claude/skills/` | `.claude/commands/`, `.claude/hooks/`, and a MERGED `.claude/settings.json` that wires the hooks |
+| **Claude Code** | `.claude/skills/` | `.claude/commands/`, `.claude/hooks/`, a MERGED `.claude/settings.json` that wires the hooks, and (per-repo installs) a starter `CLAUDE.md` at the repo root if there is none |
 | **Cursor** | `.cursor/skills-cursor/` | `AGENTS.md` at the root (the rules the hooks enforce, as instructions) |
 | **Codex** | `.codex/skills/` | `AGENTS.md` at the root |
 

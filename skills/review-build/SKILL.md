@@ -1,6 +1,6 @@
 ---
 name: review-build
-description: The standard post-build review gate. Invoke this (via /review-build) at the END of building or changing anything, before calling the work done. It runs a thorough, no-gaps audit of what was built and everything it touches (frontend, backend, database, every path and scenario), proves any security-sensitive change is actually secure by attacking it, confirms UI is beautiful AND fully mobile-optimized, wires new functionality into error alerting the right way, keeps customer-facing docs current, and extends any operator-facing agent / template / public API the feature needs. Then it fixes every real issue found, thoroughly, re-verifying each one yourself. Use when the user says "review what you built", "is it done", "no gaps", "run review-build", or finishes a feature.
+description: The standard post-build review gate. Invoke this (via /review-build) at the END of building or changing anything, before calling the work done. It runs a thorough, no-gaps audit of what was built and everything it touches (frontend, backend, database, every path and scenario), proves any security-sensitive change is actually secure by attacking it, confirms UI is beautiful AND fully mobile-optimized, wires new functionality into error alerting the right way, keeps customer-facing docs current, and extends any operator-facing agent / template / public API the feature needs. Then it fixes every real issue found, thoroughly, re-verifying each one yourself. Use when the user says "review what you built", "read the review skill", "do the review", "is it done", "no gaps", "run review-build", or finishes a feature.
 ---
 
 # Review Build: the definition-of-done gate
@@ -19,7 +19,8 @@ passes.
 
 - Read the **`build-with-the-user-in-mind`** skill first. It sets how thorough this review has to
   be, from the user's seat.
-- If any part of what you built touches UI or UX, read the **`ui-ux-pro-max`** skill.
+- If any part of what you built touches UI or UX, read the **`ui-ux-pro-max`** skill, and the
+  **`mobile-view-optimization`** skill for the phone check in step 3.
 - If any part touches auth, security, or the database, read the **`security-rls-permissions`**
   skill before the security step below.
 
@@ -77,6 +78,9 @@ comfortable finger size, roughly 44-48px), text is readable without zooming, dia
 forms reflow rather than break, and the primary action is reachable with a thumb. A feature that
 works on desktop but is broken on a phone is not done.
 
+The `mobile-view-optimization` skill has the exact protocol (390px with touch emulation, the
+overflow probe, re-checking desktop) and the fixes that work. Read it before fixing anything here.
+
 ---
 
 ## 4. Error alerting: notify on real failures, stay silent on by-design outcomes
@@ -101,11 +105,11 @@ sources of truth current before calling the work done. IF this repo has them:
 1. **The changelog / "What's New".** Add one entry from the user's perspective, describing what they
    can now DO. Title uses a colon, never an em dash or en dash. (In a repo with an automated
    pipeline, this is a dated file in the changelog folder that flows to the What's New page and the
-   monthly email. Name the real path once it exists here.)
+   monthly email. Name the real path once it exists here. See `release-announcements`.)
 2. **The docs / help center.** Update the matching article for anything a user sees or does (a page,
    field, setting, workflow, or a bug behavior they would notice), or create it if missing, so the
-   docs never fall behind what you shipped. If this repo has a dedicated docs skill (e.g.
-   `update-help-center`), read it first for structure, wording, and how to add screenshots. State
+   docs never fall behind what you shipped. Read the **`help-center-upkeep`** skill (or this repo's own docs skill, such as
+   `update-help-center`, if it has one) first for structure, wording, and how to add screenshots. State
    which articles you updated or created, or why none was needed.
 
 ---
@@ -117,7 +121,7 @@ natural-language operations agent that lets operators do things by chat, make su
 it too, always under that user's real role, security, and location access.
 
 - Read the repo's agent-extension skill first (e.g. `extend-operations-agent`) to see how the agent
-  is structured.
+  is structured. If the repo has none yet, `internal-ai-agent-architecture` describes the shape.
 - If it already covers the new action, confirm so. If it cannot, build the verb or read tool,
   mirroring how the feature actually works (write as the caller so the same security applies), not a
   blind write that bypasses the app's rules.
@@ -130,11 +134,12 @@ it too, always under that user's real role, security, and location access.
 - **Templates / seed for a fresh account.** If you added new functionality, a company that started
   from a template must be able to use it immediately with defaults. If it needs any data or
   configuration a brand-new account does not have, wire it into the template start (regenerate the
-  seed, dry-run the setup routine). Read the repo's template skill (e.g. `setup-templates`) first.
+  seed, dry-run the setup routine). Read the repo's template skill (e.g. `setup-templates`) first, or
+  `customer-onboarding-doors` for the general checklist.
   Exempt only if a built-in default already makes it work, or it is an optional setting that is fine
   left off. State what you wired, or which exemption applies.
 - **Public / developer API.** If this repo exposes a public API, check whether what you built should
-  be exposed through it. Read the repo's API skill (e.g. `public-api`) and, if so, wire it in per
+  be exposed through it. Read the repo's API skill (e.g. `public-api`), or `public-api-upkeep`, and, if so, wire it in per
   that skill's upkeep checklist so the API stays complete and consistent.
 
 ---
@@ -164,7 +169,7 @@ the feedback goes to the CUSTOMER, not to us. Do not alert engineering for a use
   they must be told because something will not work: send a short, nice email with quick
   instructions and a direct link to where they fix it. Optionally set a one-time banner for their
   next sign-in, that shows once and is gone after they dismiss it. If you send any email, read the
-  repo's **`email`** skill first.
+  **`email-infrastructure`** skill first.
 
 **Only alert US (engineering)** for a genuine failure that a human on our side should investigate or
 fix. Never for a by-design outcome, a handled fallback, or a user error.

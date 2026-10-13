@@ -239,6 +239,20 @@ def write_agents_md(root):
     log("    wrote AGENTS.md (cross-agent rules)")
 
 
+def write_claude_md(root):
+    """Place a starter CLAUDE.md at <root> from the template, only if absent."""
+    src = os.path.join(SOURCE_DIR, "CLAUDE.template.md")
+    if not os.path.isfile(src):
+        return
+    dst = os.path.join(root, "CLAUDE.md")
+    if os.path.exists(dst):
+        log("    CLAUDE.md already exists here - left untouched")
+        log(f"      (compare it with the template to pick up new rules: {src})")
+        return
+    shutil.copy2(src, dst)
+    log("    wrote CLAUDE.md (starter: the owner's standing rules + project facts to fill in)")
+
+
 # --------------------------------------------------------------------------- #
 # Per-agent install
 # --------------------------------------------------------------------------- #
@@ -261,6 +275,10 @@ def install_agent(agent, root, is_global=False):
             log(f"    copied {nh} hook file(s)")
         # 3. Merge settings.json (wires the hooks + permissions).
         merge_settings(agent_dir, is_global)
+        # 4. Starter CLAUDE.md at the repo root (per-repo installs only: its
+        #    first part is that repository's own facts).
+        if not is_global:
+            write_claude_md(root)
     else:
         # Cursor / Codex do not run Claude's hooks: carry the rules via AGENTS.md.
         write_agents_md(root)

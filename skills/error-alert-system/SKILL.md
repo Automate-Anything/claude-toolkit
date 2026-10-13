@@ -13,6 +13,23 @@ description: A reusable DESIGN PATTERN for capturing, deduping, surfacing, and r
 > pattern to the repo's actual stack (Python/TS/etc.) and storage (Postgres,
 > SQLite, a table, even a log sink) - the *shape* is what's reusable, not the names.
 
+> **How the owner thinks about an alert (the engine behind every rule below).**
+> An alert is never "a row to clear." It is a signal, and the instinct is to ask where
+> the signal was BORN and make the thing that produced it right, so it never has to
+> fire again. Three principles drive this whole playbook (full set: the
+> `how-the-founder-thinks` skill):
+> - **Fix from the SOURCE, never the symptom.** Trace to the one write site; do not
+>   patch readers. A recurrence is proof the last fix was a symptom patch.
+> - **Design so the failure cannot happen, don't just handle it.** The best outcome is
+>   not a quieter alert, it is a glitch that was engineered OUT (a retry, guard, or
+>   null-check at the source, a state made impossible by construction) so nothing fires
+>   in the first place. Prefer that over re-tiering every time it is possible.
+> - **Refuse the false tradeoff, and route the signal to the RIGHT human.** Quieting
+>   your own inbox is not a reason to leave a USER stranded (bucket D, section 1g). And
+>   a graceful fallback is NOT proof the owner does not care: a handled processor / SMS
+>   / phone disconnect can still mean a customer's business is about to stop. Silencing
+>   is never your unilateral call; it needs the owner's explicit yes.
+
 ---
 
 ## 0. The mental model: capture everywhere, one inbox
@@ -27,9 +44,12 @@ over it). Three doors in:
 
 | Entry point | Who triggers it |
 |---|---|
-| **A. `report()` in catch blocks** | any catch that would otherwise swallow a failure - pipeline stages, integrations, routes, scripts |
-| **B. Rule / absence checks** | write-path or loop checks that alert on failures of *absence* (something that should have happened didn't) |
-| **C. Notification channel** | email/Slack/etc. when an actionable alert fires |
+| **A. `report()` in application code** | any catch that would otherwise swallow a failure - frontend, every server, pipeline stages, integrations, routes, scripts. All of them post to ONE intake. |
+| **B. A database-side logger** | a database function or trigger that catches its own exception and returns a graceful fallback. Application code never sees that failure, so the database has to report it itself (section 3). |
+| **C. The rule engine** | a job that QUERIES state on a schedule and raises alerts for conditions nothing throws on: something that should have happened didn't, a rate crossed a line (section 4). |
+
+A notification channel (email, Slack) sits on the way OUT: it tells a human when an
+actionable alert fires (section 5). It is not a way in.
 
 The load-bearing idea is a **three-level split** (names are illustrative):
 
@@ -104,6 +124,7 @@ with a **written reason**. Some swallows are correct (a best-effort diagnostic
 read) - those get the written reason, not a silent pass.
 
 ### 1c. Triage an alert: is the condition still true RIGHT NOW?
+This is the short version. The full decision, which you walk for every alert, is 1h.
 An alert is a point-in-time record; it doesn't update its own title.
 - **High `fire_count`** → the one to actually fix (it's in a loop).
 - **A one-off transient** (an upstream hiccup, a rotated token) → check it still
@@ -264,6 +285,146 @@ visibility, you are giving the user a better experience AND removing engineering
 noise that was never actionable. Just verify the condition cleared and resolve,
 noting that the fix routed the signal to the user.
 
+### 1h. The four triage questions (walk them for EVERY alert)
+
+Resolving an alert instance is almost never the real job. The real job is deciding
+what SHOULD be true about this alert going forward. An agent that only asks "is the
+condition still true right now?" resolves a stale instance and leaves the same noisy
+alert to fire again next week. Run these four in order. Each has a distinct action.
+
+**Q1. What is the alert REALLY reporting? Never trust the title.**
+The title is written by whatever code raised it, and it lies constantly. Alerts titled
+"signature valid", "Repaired malformed ...", "submitted", or "fell back to owner" are
+successes or benign self-heals reported through the error pipe. Before doing anything:
+- Pull the backing events and read the **actual metadata** (outcome, raw vs normalized
+  values, the source, which accounts). See what happened, not what the title says.
+- Open the **source** that raised it and read WHY it reports at all. The code's own
+  comments usually state the intent ("log-only observation phase", "tripwire for an
+  upstream bug").
+- Check the **resolved history for the same `alert_key`.** A long trail of the same
+  alert opened and resolved over and over is a **treadmill**: proof the alert is
+  mis-designed and someone keeps hand-clearing it. That is a fix-at-source case, not a
+  resolve case.
+- **Read the production logs yourself** before concluding anything from the alert text.
+  The request that failed, its status code, and the surrounding log lines often reveal
+  the real cause (a success status from the server means the failure was on the client;
+  an empty error field from a provider can mean it actually succeeded). Do not ask the
+  owner to paste logs. See `infrastructure-overview-template` for where a repo records
+  how to pull them.
+
+**Q2. Is it a real bug, a mis-scoped alert, or pure noise?** Three verdicts, three actions:
+
+| Verdict | What it looks like | Action |
+|---|---|---|
+| **Real bug** (one occurrence at 3am would make you investigate) | a broken function, a failing send, a constraint hit, a spoofed webhook | Fix the root cause, verify, resolve. Keep the alert firing: it is doing its job. |
+| **Mis-scoped alert** (fires on a benign case AND, sometimes, a real one) | the condition is too broad: it flags normal input as malformed, or logs a success | **NARROW the condition at the source** so it fires only on the bad case. Do NOT kill the whole alert: that throws away the real signal hiding inside it. |
+| **Pure noise** (you would never investigate, at any volume) | success reported as error, expected skip, by-design refusal, idempotency hit | Remove the alerting at the source (stop the report call, or log a warning instead). Then resolve. Re-tiering to silent still needs the owner's yes (section 1f). |
+
+These verdicts map onto the buckets in 1e: a mis-scoped alert and pure noise are both
+bucket (B), and they differ in how much of the alert survives.
+
+**Q3. Fix at the source WITHOUT losing the real signal or breaking production.**
+The expensive mistakes happen here:
+- **Verify the "benign" case is benign with LIVE DATA before narrowing.** Do not guess
+  from the title. Real case: one alert fired both on an 11-digit phone number (a normal
+  number with a country code, benign) and on a 20-digit one (two numbers concatenated,
+  a real bug). Only after querying every occurrence was it safe to narrow the alert to
+  the 20-digit case and keep that signal. Silencing the whole thing would have hidden
+  the real one.
+- **A narrowing fix must NEVER change the non-alert behavior.** If a trigger both
+  repairs data and alerts, narrowing the ALERT must leave the repair identical. Diff
+  the live function body and confirm the only change is the alert predicate.
+- **Carve out a KNOWN-benign sub-case, not the whole alert.** If most failures of a
+  check would be real but one specific path is benign for a reason you can name, keep
+  the alert loud for everything else and special-case that one path, with a `TODO`
+  naming the root cause still to fix.
+- **Make the surviving alert ACTIONABLE.** If an alert fires rarely, give it enough
+  metadata that the notification diagnoses itself (inputs, which checks were tried,
+  ids) so the next agent can act without re-deriving it.
+
+**Q4. Where does the fix live, and when does it take effect?** This changes what you
+tell the owner:
+- **A database fix** (trigger, function) is live the moment it is applied. The noise
+  stops now. It is still an edit to existing database state: full live-schema
+  discipline applies.
+- **A code fix** only takes effect after it DEPLOYS. Until then the running server
+  keeps raising it and the alert can reopen once more. Resolve it anyway the moment
+  the fix is written and verified (section 1d), and say so plainly in the handoff:
+  "resolved; it can reopen until the code deploys."
+
+**The stale-versus-live check.** An alert is a point-in-time record, and even a
+well-designed one may have healed itself. Check the thing it names, live:
+- a missed-schedule alert: did that job run recently? Then it recovered.
+- a latency alert: is the recent p95 for that route back under the threshold?
+- a database-function error: does the function now pass the static check?
+- "no active plan", "location missing", "credentials revoked": pull the named entity
+  and see whether the condition still holds. It often clears on its own.
+
+**The one sentence to remember:** an alert firing is either a bug to fix, a condition
+to narrow, or noise to stop at the source. "Resolve the instance" is only the last
+step of whichever of those you chose, never the whole answer.
+
+### 1i. Self-solving alerts (the capture carries its own fix)
+
+Some bugs CANNOT be fixed blind: the fix depends on data only the live occurrence
+carries (the exact bytes a provider signed, the real payload shape, which of several
+variants is the true one). Guessing a fix, or declaring it benign, both lose the
+signal. The pattern that closes them is to make the alert solve itself over one more
+occurrence.
+
+1. **When you pick up ANY alert, FIRST look in its metadata for fields such as
+   `self_solving`, `fix_instructions`, or `diagnosis`.** If present, a previous agent
+   already investigated and left you a work order. Follow it and apply the fix the
+   captured diagnosis points to. Do not re-investigate from scratch.
+2. **When YOU hit an alert you cannot fix blind,** do not guess and do not silence it.
+   **Enrich the capture at the source** so the next firing records exactly what is
+   needed, and write plain-language `fix_instructions` into the alert metadata saying
+   what was wrong and precisely what to set once the data is present. Leave the alert
+   OPEN: it is unsolved. The capture change has to reach the running server before the
+   next occurrence (that deploy is the owner's). The embedded data must be **safe to
+   store**: record the discriminator (a variant NAME, a shape, an id), never a secret,
+   a full signature, or a request body.
+3. Each firing then either answers the question (the agent applies the named fix) or
+   tells the next agent which further variant to capture. The alert converges on a fix
+   instead of recurring as a manual investigation.
+
+Worked example: a webhook signature check that sometimes mismatched. The capture was
+changed so that, on a mismatch, it tries every credible way of reconstructing the
+signed URL and records the NAME of the variant that matches, plus instructions for
+setting the verifier to that variant and switching it from observing to enforcing.
+
+### 1j. A human-facing number for every alert
+
+Give every alert a short, stable, monotonic number (a database sequence column, oldest
+alert is #1). Show it as the first column of the alerts page and the first line of the
+copy-for-an-agent block. The owner then says "check alert #1439" and that is one
+lookup. Prefer the number over a UUID or an `alert_key` whenever you talk to a human,
+and echo it back when you report.
+
+### 1k. Resolve and silence, mechanically
+
+- **Fix, verify, resolve is ONE unit of work.** Shipping the fix and leaving the alert
+  open is a real, repeated miss: the owner thinks it is still broken and the board
+  fills with finished work.
+- **Resolve the alert AND its backing group** so they stay in sync. The alerts UI
+  should do both; if you write to the store directly, do both yourself.
+- **Mind the status vocabulary.** If groups and alerts use different words for
+  "muted" (for example `ignored` on one and `silenced` on the other), do not mix them.
+  The sync between the two has to map one to the other.
+- **Silence** is a status plus an "until" time that the rule job respects. It mutes
+  for a window without closing. It needs the owner's yes (section 1f).
+- **Bulk-resolving a category:** scope it tightly (by key pattern, title pattern, AND
+  "last fired more than a day ago") so you never sweep up something still firing.
+- **After resolve or silence, a new firing opens a NEW row.** That is by design: one
+  open row per `alert_key`, enforced by a unique index on open rows only.
+
+### 1l. When the investigation comes with a video or a voice note
+
+If the owner forwards a customer's screen recording or a voice note about the failure,
+process it with the **`media-review`** skill. It transcribes the audio and pulls only
+the frames that differ, so you see the exact failing screen and the exact words. Pair
+the frames and timestamps with the alert's metadata to reproduce it.
+
 ---
 
 ## 2. SEVERITY, DEDUPE & FINGERPRINTING
@@ -277,8 +438,64 @@ noting that the fix routed the signal to the user.
   bugs merge. Always check grouping on **real data**.
 - **Escalation:** a silent/info ticket that crosses a repeat threshold (e.g. 100
   fires) should promote to a higher tier so a persistent "minor" issue surfaces.
+- **Severity is derived in a fixed order:** a silent policy gives info; a critical
+  marker gives critical and OVERRIDES silent (you cannot ask for both "never page" and
+  "must page", critical wins); an info marker gives info; everything else is warning.
+- **Dedupe policies** the reporter should offer:
+  - `background` (the default): one bucket per (type, message, job, route). The first
+    fire notifies, repeats only bump the count, and it re-notifies on a cadence.
+  - `user_action`: also bucketed by account and user, so two people hitting the same
+    bug do not suppress each other.
+  - `critical`: like background with a tighter cadence.
+  - `silent`: an info ticket, no notification, visible in the UI, which auto-escalates
+    to warning with a one-time notification when the count crosses its threshold. For
+    "benign, but I want to watch the frequency."
+- **What a report should carry** so the next agent can fix it without re-deriving it:
+  a stable `type`, a greppable `source` (`module.function`), the route or job name, and
+  the account and user ids.
+- **Client-side filtering.** The frontend reporter drops known-benign noise before it
+  is sent (auth rejections, aborted requests, network blips, browser-extension errors,
+  stale-bundle chunk errors) unless a call forces it through. It also dedupes locally
+  for a few minutes and batches, so one broken screen is one report with a count.
+- **One intake.** The frontend and every secondary server post to a single
+  rate-limited intake endpoint that returns immediately. Dedupe policy and escalation
+  threshold travel in the payload, so the rule is learned once and behaves the same on
+  every surface.
 
-## 3. ABSENCE ALERTS (the rule engine)
+## 3. THE DATABASE CAPTURE PATH
+
+Application-side reporting cannot see a failure that happens entirely inside the
+database: a function or trigger that catches its own exception and returns a graceful
+fallback. The user sees a broken page and the application never knew. A real case took
+down one core read for every account, silently, because the function swallowed its own
+error.
+
+Build a database-side logger and call it from INSIDE the exception handler:
+
+```sql
+EXCEPTION WHEN OTHERS THEN
+  PERFORM log_db_error('my_function', SQLERRM, SQLSTATE,
+    jsonb_build_object('returns_graceful_fallback', true));
+  RETURN json_build_object('error', 'internal_error');
+END;
+```
+
+- It fingerprints on (source function, error code) and writes into the same groups and
+  events as everything else, with a title an agent can act on:
+  `DB error in <source> [<code>]: <message>`.
+- It is **exception-safe**: its own failure can never propagate back to the caller.
+- It is privileged and callable by the service role only.
+- A rule (section 4) turns those groups into alerts.
+- **The proactive sibling: a static check.** In Postgres, a function body that selects
+  a column that does not exist is accepted when the function is created and fails only
+  when a user trips it. A static checker (the `plpgsql_check` extension) catches that
+  before runtime. Run it in three layers: in the local typecheck whenever a migration
+  changed, in a pre-commit hook, and as a nightly sweep that reports through the same
+  database logger. Tag sweep findings in the metadata (for example
+  `origin = static_sweep`) because they fingerprint the same as a real runtime hit and
+  you need to tell them apart.
+
+## 4. ABSENCE ALERTS (the rule engine)
 Some failures have no exception to catch - something that should have happened
 didn't (a job opened and never finished, a queue stopped draining). Observe the
 condition from a **write path or an always-running loop** (not a naive timer),
@@ -288,7 +505,34 @@ and:
 - for a rate-based rule, require a minimum sample and do **not** clear on a merely
   quiet window (quiet ≠ fixed).
 
-## 4. NOTIFICATION CHANNEL
+**Two kinds of rule. The difference decides who closes the alert:**
+- **Stateful** rules fire continuously while a condition holds and **auto-resolve**
+  when the rule runs again and the condition is gone. Use them for ongoing states: a
+  job failing repeatedly, a job that missed its schedule, a provider's webhook failure
+  rate, a slow endpoint.
+- **Event** rules fire on a one-time signal that needs a human to acknowledge it, and
+  stay open until someone resolves them: a subscription ended, a database error.
+
+**What bites in the rule job:**
+- **Auto-resolve only happens when the rule RUNS AGAIN and finds nothing.** If the job
+  itself was down during the recovery, the alerts sit open for days after the thing
+  healed. Resolve those by hand after checking, and treat "the rule job stopped" as
+  its own alert.
+- **Skip when nothing changed.** A stateful rule evaluates every minute. Bump the fire
+  count only when there is NEW activity behind it, or the count spins into the
+  thousands and stops meaning anything.
+- **Sticky resolve.** A resolved alert reopens only on new activity, never on a repeat
+  of the same stale evidence.
+- **Daily and weekly jobs need their own allowed-lateness entry,** or the
+  missed-schedule rule fires falsely on every job that is not supposed to run each
+  minute.
+- **Release stale claims** at the start of each run (see section 6).
+- **Namespace the key:** `<rule>` or `<rule>:<entity>`, so one open row exists per
+  rule per thing.
+- Adding a rule should be one entry in one list. If it takes more, the engine is
+  wrong.
+
+## 5. NOTIFICATION CHANNEL
 Gate notifications so they're useful, not spam: info never notifies; warning/
 critical notify on first fire; repeats re-notify only on a cadence (e.g. 24h); a
 just-escalated ticket notifies once even inside the window. Make it
@@ -297,9 +541,34 @@ if channel credentials are unset - the data still records; notification is
 additive. The message carries **identifiers only** + a deep link, never sensitive
 content.
 
+Customer-follow-up alerts (an account that needs someone to reach out) belong in the
+same inbox under their own category, shown in the UI and NOT emailed to engineering.
+
+**"I got the email but the alerts page is empty."** The email is a snapshot of when
+the alert was OPEN. If an agent has since fixed the cause and resolved it, it drops out
+of the default open view. It is not missing: switch the filter to resolved or all. The
+email always means "this was true at that time", not "this is true now".
+
+## 6. THE WORKFLOW SURFACE (claim, resolve, silence, copy for an agent)
+
+Give the inbox a small internal page and API:
+
+- **List** with filters: status (open by default), whether to include info, and a
+  category (engineering versus customer follow-up).
+- **Claim ("Work on this").** Marks who is on it, with an expiry (a day). A second
+  person gets a conflict while the claim is live. The rule job releases expired claims.
+  Only the holder can release early. Resolving or silencing clears the claim.
+- **Resolve / silence / reopen,** with an optional resolution note, mirrored onto the
+  backing group (section 1k).
+- **"Copy for AI".** One button that puts the alert number, title, and payload (source,
+  error code, stack, ids) into a block the owner can paste to an agent. Its first line
+  is the alert number, so the pasted block and the number he says always match.
+- The tables behind it are reachable by the service role only. The browser never reads
+  them directly.
+
 ---
 
-## 5. GOTCHAS
+## 7. GOTCHAS
 - **Never resolve without verifying** (§1d). The unbendable rule.
 - **Resolve the instant the code fix is written - do NOT wait for commit/deploy,
   do NOT ask** (§1d). Committing/shipping is the owner's job; holding an alert
@@ -323,3 +592,42 @@ content.
   and the Errors view stops being the one place to look.
 - **Verify names before citing them.** This is a pattern; grep the repo for what
   actually exists before pointing the user at a file or table.
+- **Never trust the title** (section 1h). Read the events and the source.
+- **"Environment: production" does not mean the production server.** Staging services
+  and test clones often run in production mode too and share one database. Put the
+  service name, the git branch, and the release id on every server alert, show them in
+  the email and in the copy block, and read those FIRST to see which server raised it.
+  A real "outage" turned out to be a test clone missing one environment variable.
+- **Gate on the real environment** (the hostname, or the server's environment setting),
+  not on a build mode flag. Development and staging should persist events for
+  debugging but never notify.
+- **A database-error rule that hardcodes one severity** will show a fatal failure as a
+  warning. Know that when you read it, or carry the severity through.
+- **A recurring family of alerts usually has one cause.** When the same few titles keep
+  returning (a billing mismatch, an orphaned record), do not resolve them one by one.
+  Find the zombie at the source and retire it. For subscriptions the database calls
+  dead but the processor still bills, see `saas-subscription-billing`.
+- **Do not invent a new send or log helper.** Failures go through the reporter or the
+  database logger; new conditions go in as a rule.
+
+---
+
+## 8. WHEN THE SYSTEM EXISTS IN THIS REPO
+
+Replace this section with the real map, and keep it current:
+
+| Concern | Where it lives here |
+|---|---|
+| Reporter (server) | TODO |
+| Reporter (frontend) | TODO |
+| Intake endpoint | TODO |
+| Error to alert | TODO |
+| Rule list and rule job | TODO |
+| Notifier | TODO |
+| Database logger | TODO |
+| Alerts API and page | TODO |
+| Tables | TODO |
+
+Also record the query that fetches open alerts, the query that fetches one by its
+number, and how to pull production logs. See `alert-patrol` for working the queue on a
+schedule.

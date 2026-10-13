@@ -1,0 +1,94 @@
+# Render blueprint for the DEDICATED Evolution API service.
+#
+# This is a SEPARATE Render service from billing-server on purpose: Evolution
+# holds long-lived WhatsApp WebSocket sockets (one per merchant) and must never
+# compete for memory/CPU with the payment/webhook/cron paths, and its restarts
+# must not churn on every billing-server deploy.
+#
+# You can either apply this blueprint, or create the service by hand in the
+# Render dashboard with the same settings (see evolution/README.md). Postgres +
+# Key-Value are declared here so sessions persist and are backed up.
+#
+# ── LIVE SERVICE (as actually deployed; SOT is evolution/ISOLATED_TEST_RIG.md) ──
+#   name:    evolution-api-whatsapp
+#   id:      <render-service-id>
+#   url:     https://<your-evolution-service>.onrender.com
+#   image:   evoapicloud/evolution-api  (v2.3.7 line, pinned by digest below)
+#   region:  Virginia   |   Postgres <render-postgres-id>   |   Redis <render-redis-id>
+# The old atendai/evolution-api image is DELISTED and v2.2.3 can no longer pair a
+# device (WhatsApp rejects the link). Use evoapicloud, pinned by digest, and set
+# CONFIG_SESSION_PHONE_VERSION to a current WhatsApp-Web version.
+
+services:
+  - type: web
+    name: evolution-api-whatsapp
+    runtime: image
+    image:
+      # evoapicloud is the maintained fork (atendai is delisted). Pin by digest so a
+      # surprise upgrade never drops sessions; bump deliberately after testing.
+      # This digest is the v2.3.7 image currently live.
+      url: docker.io/evoapicloud/evolution-api@sha256:966625532d9076a2381e973a271307d107e6f070450de3abeeea8bd18be07252
+    plan: standard          # sockets are memory-resident; start at standard, scale up as sessions grow
+    region: virginia        # matches app-server-prod (private networking + low latency)
+    healthCheckPath: /
+    envVars:
+      - key: AUTHENTICATION_API_KEY
+        sync: false         # set to a long random value (openssl rand -hex 32); SAME value goes in billing-server EVOLUTION_API_KEY
+      - key: SERVER_URL
+        sync: false         # the public URL Render assigns (or your custom domain, e.g. https://evolution.example.com)
+      - key: CONFIG_SESSION_PHONE_VERSION
+        sync: false         # REQUIRED: a CURRENT WhatsApp-Web version or the device link is rejected. Live value e.g. 2.3000.1043857760; bump whenever WhatsApp rotates it.
+      - key: DATABASE_ENABLED
+        value: "true"
+      - key: DATABASE_PROVIDER
+        value: postgresql
+      - key: DATABASE_CONNECTION_URI
+        fromDatabase:
+          name: evolution-postgres
+          property: connectionString
+      - key: DATABASE_CONNECTION_CLIENT_NAME
+        value: evolution_app
+      - key: DATABASE_SAVE_DATA_INSTANCE
+        value: "true"
+      - key: DATABASE_SAVE_DATA_NEW_MESSAGE
+        value: "true"        # REQUIRED true: with false, Evolution keeps no message, so inbound media/voice download fails ("Message not found"). See ISOLATED_TEST_RIG finding 3.
+      - key: DATABASE_SAVE_MESSAGE_UPDATE
+        value: "false"
+      - key: DATABASE_SAVE_DATA_CONTACTS
+        value: "true"
+      - key: DATABASE_SAVE_DATA_CHATS
+        value: "false"
+      - key: CACHE_REDIS_ENABLED
+        value: "true"
+      - key: CACHE_REDIS_URI
+        fromService:
+          name: evolution-redis
+          type: keyvalue
+          property: connectionString
+      - key: CACHE_REDIS_PREFIX_KEY
+        value: evolution_bp
+      - key: CACHE_REDIS_SAVE_INSTANCES
+        value: "true"
+      - key: CACHE_LOCAL_ENABLED
+        value: "false"
+      - key: WEBHOOK_GLOBAL_ENABLED
+        value: "false"
+      - key: DEL_INSTANCE
+        value: "false"
+      - key: QRCODE_LIMIT
+        value: "30"
+      - key: LOG_LEVEL
+        value: ERROR
+      - key: LOG_COLOR
+        value: "false"
+
+  - type: keyvalue
+    name: evolution-redis
+    plan: starter
+    region: virginia
+    ipAllowList: []         # only reachable from within the Render private network
+
+databases:
+  - name: evolution-postgres
+    plan: basic-256mb       # bump as session count grows; enable daily backups in the dashboard
+    region: virginia

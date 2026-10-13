@@ -1,0 +1,62 @@
+# Render Blueprint for voice-rt, the self-hosted Pipecat voice runtime.
+# Same host as the rest of the system (Render), same shape as the Evolution
+# WhatsApp service (a dedicated Docker web service next to app-server).
+#
+# Sizing: ~0.5-1 vCPU + ~150MB RAM per concurrent call (Silero + Smart Turn v3
+# on CPU; STT/LLM/TTS are remote). `standard` (1 CPU / 2GB) comfortably runs
+# a handful of concurrent calls; scale the instance type or count as minutes
+# grow. Any instance can serve any call (session state lives in app-server).
+services:
+  - type: web
+    name: app-voice-rt
+    runtime: docker
+    region: oregon
+    plan: standard
+    rootDir: voice-rt
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    # ONE instance on purpose. A live call lives in the memory of the instance
+    # that took its media stream, and the mid-call controls (inject, hang-up)
+    # reach that instance only through this service's load-balanced URL. With a
+    # second instance, about half of those requests would land on an instance
+    # that does not hold the call and fail. app-server's session store is
+    # in-memory and single-instance as well. Scale up (MAX_CONCURRENT_CALLS, a
+    # bigger plan) before scaling out; scaling out first needs per-instance
+    # routing for the control endpoints and a shared session store.
+    numInstances: 1
+    envVars:
+      - key: LOG_LEVEL
+        value: INFO
+      - key: NODE_ENV
+        value: production
+      # app-server (the brain): session bootstrap, tool calls, end-of-call.
+      - key: BILLING_SERVER_URL
+        sync: false
+      - key: VOICE_AGENT_SHARED_SECRET
+        sync: false
+      # SignalWire (Twilio-compatible cXML REST) for the serializer's hang-up.
+      - key: SIGNALWIRE_SPACE_URL
+        sync: false
+      - key: SIGNALWIRE_PROJECT_ID
+        sync: false
+      - key: SIGNALWIRE_API_TOKEN
+        sync: false
+      # Engine B (chained)
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: CARTESIA_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      # Engine A (OpenAI Realtime speech-to-speech) uses OPENAI_API_KEY too.
+      # Capacity guard: refuse new calls above this many concurrent sessions
+      # (SignalWire then runs the cXML fallback after <Connect>, a hangup, so
+      # set it high enough for the instance and scale before you hit it).
+      - key: MAX_CONCURRENT_CALLS
+        value: "40"
