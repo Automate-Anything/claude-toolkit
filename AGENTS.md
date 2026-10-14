@@ -81,7 +81,7 @@ Before doing work a skill covers, read that skill first. Highlights:
 - Money paths: `money-truth-doctrine`, `pos-checkout-design`,
   `payment-processor-integration-checklist`, `saas-subscription-billing`,
   `commission-system-design`, `memberships-and-packages-design`,
-  `serialized-inventory-and-consignment`, `bank-transaction-feed`.
+  `serialized-inventory-and-consignment`, `bank-transaction-feed` (getting the daily transactions and balances), `bank-reconciliation` (matching them).
 - Reports: `report-verification`, `analytics-reports-architecture`.
 - AI agents: `internal-ai-agent-architecture`, `ai-model-platform`,
   `multi-agent-assistant-architecture`, `inject-tool-knowledge-on-use`,
@@ -107,7 +107,7 @@ Before doing work a skill covers, read that skill first. Highlights:
   `keyword-research`, `ad-copy-generation`, `budget-optimization`,
   `competitor-analysis`, `conversion-tracking`, `landing-page-audit`,
   `quality-score-optimization`).
-- Platform: `browser-verification`, `media-review`, `claude-model-skill`,
+- Platform: `browser-verification`, `media-review`, `claude-model-skill`, `claude-vault`,
   `claude-subscription-one-click-setup`.
 - Stripe: `stripe-best-practices`, `stripe-docs`, `stripe-directory`,
   `stripe-projects`, `connect-recommend`, `upgrade-stripe`.

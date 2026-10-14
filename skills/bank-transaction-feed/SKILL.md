@@ -1,11 +1,15 @@
 ---
 name: bank-transaction-feed
-description: How to set up a daily, automatic feed of a business's bank transactions, delivered straight from the bank with no per-transaction cost. The bank drops a BAI2 file into an SFTP folder every morning; a scheduled job picks it up, parses it, and loads every transaction. Use this whenever the user wants to pull bank transactions, automate bank reconciliation, get a daily transaction file from a bank, replace a paid transaction-data service, or wire a client's bank account into their system. Covers the three parts: what it takes from the person (the bank request and account eligibility), what it takes from code (the SFTP pickup and the BAI2 parse), and how to set it up end to end. Triggers on BAI2, SFTP bank file, previous-day reporting, treasury management feed, daily bank transactions, bank reconciliation automation, "pull transactions from the bank."
+description: How to set up a daily, automatic feed of a business's bank TRANSACTIONS and BALANCES, delivered straight from the bank with no per-transaction cost. It only gets the data in; it is not a reconciliation skill (matching transactions to invoices or payments is the separate `bank-reconciliation` skill). The bank drops a BAI2 file into an SFTP folder every morning; a scheduled job picks it up, parses it, and loads every transaction. Use this whenever the user wants to pull bank transactions or balances, get a daily transaction file from a bank, replace a paid transaction-data service, or wire a client's bank account into their system. Covers the three parts: what it takes from the person (the bank request and account eligibility), what it takes from code (the SFTP pickup and the BAI2 parse), and how to set it up end to end. Triggers on BAI2, SFTP bank file, previous-day reporting, treasury management feed, daily bank transactions, bank reconciliation automation, "pull transactions from the bank."
 ---
 
 # Daily Bank Transaction Feed (BAI2 over SFTP)
 
-Get every bank transaction, automatically, every morning, straight from the bank. The bank puts one file (BAI2 format) into an SFTP folder each day. A scheduled job pulls it, reads it, and loads the transactions. Set it up once; there is no per-transaction fee after that.
+> **Scope: this skill only GETS the data.** Every transaction and every balance, each day,
+> loaded into the app. It does not decide what a transaction is or match it to invoices or
+> payments. That is reconciliation, a separate job with its own skill: `bank-reconciliation`.
+
+Get every bank transaction and the account balances, automatically, every morning, straight from the bank. The bank puts one file (BAI2 format) into an SFTP folder each day. A scheduled job pulls it, reads it, and loads the transactions. Set it up once; there is no per-transaction fee after that.
 
 It has three parts. **What the person does** (ask the bank, set up the account). **What the code does** (pull the file, parse it). **How to set it up** (the order of operations).
 
@@ -64,7 +68,7 @@ Do not hand-roll a parser. Use a library:
 - **Node:** `bai2-parser` (`BAI2.fromFile()`, outputs JSON or CSV).
 
 You only need to know this much about the format to use it:
-- Plain text, one record per line, each line starts with a 2-digit code. `01` file header, `02` group, `03` account (carries balances), `16` a transaction, `49`/`98`/`99` trailers with control totals.
+- Plain text, one record per line, each line starts with a 2-digit code. `01` file header, `02` group, `03` account (carries the balances: opening and closing ledger balance, available balance, each with its own type code; get the bank's list), `16` a transaction, `49`/`98`/`99` trailers with control totals.
 - **Amounts are in cents, no decimal point.** `6962782` means `$69,627.82`. Divide by 100.
 - **Credit vs debit comes from the transaction's type code, not a sign.** Roughly: 100-399 = money in (deposits, ACH credits, incoming wires), 400-699 = money out (checks paid, ACH debits, outgoing wires, fees). Get the exact code list from the bank.
 - **Control totals** at `49`/`98`/`99` let you verify the file: account total = sum of its transactions, group = sum of accounts, file = sum of groups. Always check these after parsing instead of trusting the parse. A valid file begins with `01` and ends with `99`.
@@ -74,11 +78,11 @@ You only need to know this much about the format to use it:
 1. Connect to the SFTP location.
 2. Download any new file into `received/`.
 3. Parse it and verify the control totals.
-4. Write the transactions to the database/ledger.
+4. Write the transactions AND the day's balances (per account: opening and closing ledger balance, available balance) to the database. Store each transaction with a uniqueness key (account, date, amount, bank reference, line position) so a reloaded file never doubles a line. Check that opening balance plus the day's transactions equals the closing balance.
 5. On success move the file to `processed/`; on any error move it to `failed/` and alert. Never skip silently.
 6. Run it on a schedule (cron) a little after the bank's delivery time. No file (weekend/holiday) means the job just exits.
 
-Reconciliation (matching each transaction to the tenant, invoice, or customer it belongs to) is plain programmed rules on top of the loaded data. Keep it deterministic and auditable.
+That is where this skill ends: the transactions and balances are in the app, verified, every day. Matching them to invoices, payments, or customers is reconciliation, which is out of scope here; see the `bank-reconciliation` skill.
 
 ---
 
@@ -89,7 +93,7 @@ Reconciliation (matching each transaction to the tenant, invoice, or customer it
 3. **Agree the connection and the specifics with the bank:** SFTP host and keys, BAI2 previous-day content, one file each morning, unique date+timestamp file names, which accounts, any fee.
 4. **Get a test file** (ask the bank, or download a Prior-Day BAI2 report from the bank's portal) and confirm you can pull and parse it and the control totals tie out.
 5. **Build the daily job** (Part 2): SFTP pull, parse, load, move to processed/failed, schedule it.
-6. **Go live**, then add reconciliation rules.
+6. **Go live.** (Reconciliation, if wanted, is a separate project: `bank-reconciliation`.)
 7. **Repeat per bank.** Same format, new connection; a multi-bank client just does the setup once per bank.
 
 ---

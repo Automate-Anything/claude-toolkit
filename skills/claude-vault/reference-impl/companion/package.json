@@ -1,0 +1,50 @@
+{
+  "name": "claude-vault-companion",
+  "displayName": "Claude Vault Companion",
+  "description": "Keeps the open Claude Code chats of this project identical on every machine: opens sessions the other machine opened, closes the ones it closed, live in this window, and exports this window's tabs when they change.",
+  "version": "1.1.1",
+  "publisher": "claude-vault",
+  "license": "UNLICENSED",
+  "private": true,
+  "engines": { "vscode": "^1.80.0" },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Claude Vault Companion",
+      "properties": {
+        "claudeVaultCompanion.mode": {
+          "type": "string",
+          "enum": ["ask", "auto", "off"],
+          "default": "auto",
+          "description": "auto (default): merge the other machine's open chats into this window live (open by session id / close by tab), announced in the status bar; ask: show a toast first; off: do nothing."
+        },
+        "claudeVaultCompanion.maxLiveOpens": {
+          "type": "number",
+          "default": 8,
+          "description": "How many chats a single live merge opens (newest activity first); the rest follows in later batches, one batch per minute."
+        },
+        "claudeVaultCompanion.openDelayMs": {
+          "type": "number",
+          "default": 1500,
+          "description": "Pause between two chats opened by a live merge."
+        },
+        "claudeVaultCompanion.minFreeMemoryMB": {
+          "type": "number",
+          "default": 1024,
+          "description": "Skip a live merge (and retry later) while the machine has less free memory than this."
+        },
+        "claudeVaultCompanion.idleSeconds": {
+          "type": "number",
+          "default": 300,
+          "description": "auto mode only: reopen only after this many seconds without keyboard/editor activity in this window."
+        }
+      }
+    },
+    "commands": [
+      { "command": "claudeVaultCompanion.reopenNow", "title": "Claude Vault: Merge the other machine's chats into this window now" },
+      { "command": "claudeVaultCompanion.exportNow", "title": "Claude Vault: Export this window's open chats now" }
+    ]
+  }
+}

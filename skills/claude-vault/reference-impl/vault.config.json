@@ -1,0 +1,40 @@
+{
+  "roots": {
+    "home": "%USERPROFILE%",
+    "dev": "C:\\dev"
+  },
+  "excludeDirNames": ["node_modules", ".venv", "venv", "__pycache__", ".git", ".tscache", "dist", ".next", ".turbo"],
+  "include": [
+    {
+      "root": "home",
+      "type": "dir",
+      "path": ".claude",
+      "exclude": [
+        ".credentials.json*",
+        "sessions/",
+        "ide/",
+        "shell-snapshots/",
+        "cache/",
+        "debug/",
+        "downloads/",
+        "backups/",
+        "session-env/",
+        "security/",
+        "statsig/",
+        "telemetry/",
+        "skills/gstack/",
+        "*.lock",
+        "*.vault-tmp",
+        ".last-cleanup",
+        ".last-update-result.json",
+        "mcp-needs-auth-cache.json"
+      ]
+    },
+    {
+      "root": "dev",
+      "type": "envfiles",
+      "path": "",
+      "maxDepth": 4
+    }
+  ]
+}
