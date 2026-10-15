@@ -107,7 +107,7 @@ Before doing work a skill covers, read that skill first. Highlights:
   `keyword-research`, `ad-copy-generation`, `budget-optimization`,
   `competitor-analysis`, `conversion-tracking`, `landing-page-audit`,
   `quality-score-optimization`).
-- Platform: `browser-verification`, `media-review`, `claude-model-skill`, `claude-vault`,
+- Platform: `browser-verification`, `media-review`, `claude-model-skill`, `claude-vault`, `reverse-engineer-anything` (third party: inspect how an app or binary works, needs the REA tool),
   `claude-subscription-one-click-setup`.
 - Stripe: `stripe-best-practices`, `stripe-docs`, `stripe-directory`,
   `stripe-projects`, `connect-recommend`, `upgrade-stripe`.
