@@ -1,0 +1,15 @@
+# The pinned Evolution image with the Baileys patches applied on top (SKILL.md section 3.5).
+# Use this when you deploy the stock image instead of building Evolution from source. Evolution's
+# build keeps its dependencies external, so Baileys is read from /evolution/node_modules at runtime
+# and a change there takes effect.
+#
+#   docker build -f Dockerfile.patched-image -t evolution-patched .     (run from this folder)
+#
+# Every patch exits non-zero when its target is missing, which fails this build: a digest bump that
+# moves Baileys can never ship without the patches being re-checked. The build log prints one
+# "[patch] baileys <version>: ..." line per patch.
+FROM evoapicloud/evolution-api@sha256:966625532d9076a2381e973a271307d107e6f070450de3abeeea8bd18be07252
+
+WORKDIR /evolution
+COPY patch-baileys-appstate-resync-loop.mjs ./patches/
+RUN node ./patches/patch-baileys-appstate-resync-loop.mjs

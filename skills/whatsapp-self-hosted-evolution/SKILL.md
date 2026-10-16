@@ -9,8 +9,9 @@ description: >-
   connection state, send text / media / voice note, status, mark read, presence, fetch media,
   logout, delete, set proxy), the inbound WhatsApp webhook and its payloads, the normalizer, echo
   suppression, the 413 body-size fix, the 400-versus-404 media case, connection states, bans,
-  session storage, the app-side tables, a go-live checklist, a test rig, and every landmine hit
-  in production. Read it BEFORE building or touching anything Evolution or Baileys. Use when the
+  session storage, the app-side tables, a go-live checklist, a test rig, build-time Baileys
+  patches (the app-state resync loop fix, with its proof test), and every landmine hit in
+  production. Read it BEFORE building or touching anything Evolution or Baileys. Use when the
   user mentions Evolution, Evolution API, Baileys, self-hosted WhatsApp, an Evolution instance,
   QR, pairing code, linked device, companion device, WhatsApp webhook, "couldn't link device",
   "Invalid proxy", QR re-scan after a deploy, messages.upsert, connection.update, fromMe echoes,
@@ -191,6 +192,58 @@ App-side settings (the names are the reference product's; yours may differ):
 
 The file that reads these and holds their defaults (`config/env.ts`) is not covered by the
 reference implementation. The names above come from its deploy docs and the `config.*` reads.
+
+### 3.5 Patch the Baileys library at build time (the app-state loop fix)
+
+Some bugs live in Baileys itself, not in Evolution, so no Evolution setting or API call can fix
+them. Patch the installed library while the image is built. Files: `reference-impl/patches/`.
+
+**The bug every Evolution 2.3.7 install has.** Baileys keeps a linked device's app state
+(labels, mutes, pins, archive) in step with a loop in `resyncAppState`
+(`node_modules/baileys/lib/Socket/chats.js`) that runs until every collection says it is done.
+Each pass sends one query. When WhatsApp does not answer within 60 seconds, the query resolves
+`undefined` instead of failing, that decodes to `{}`, and every way out of the loop is inside the
+`for` over the decoded answer, which never runs on `{}`. Result: one blind query every 60
+seconds for as long as the socket lives (about 1,000 a day per number, all through that number's
+proxy, which is exactly the kind of odd traffic that gets a number flagged). An answer with no
+collections in it spins the loop with no wait at all. Read and run against baileys
+`7.0.0-rc.9` (inside the v2.3.7 image) and `7.0.0-rc13`; both have it.
+
+**The fix:** an empty answer ends that sync pass, with one warning in the log. WhatsApp's next
+`server_sync` notification, or the next connect, runs the sync again. Where it came from: OpenWA
+(`github.com/rmyndharis/OpenWA`, MIT, `scripts/patch-baileys-appstate.js`), a separate
+open-source WhatsApp gateway on the same two libraries. Its `docs/29-engine-capability-matrix.md`
+lists every library bug it patches, and is worth re-reading when you bump Baileys.
+
+**How the patch is built** (`patch-baileys-appstate-resync-loop.mjs`), the pattern for any
+library patch:
+- It replaces two exact lines and adds a marker comment.
+- Marker already there: it does nothing (safe to run twice).
+- Target not found exactly once: it exits non-zero, which fails the Docker build, so a Baileys
+  upgrade can never silently ship without it. A failure there means "re-check whether the bug
+  is still there", not "delete the patch".
+- It prints one `[patch] baileys <version>: ...` line, so the deploy's build log proves it ran.
+
+**Wire it in, one of two ways:**
+- **Stock pinned image:** `reference-impl/patches/Dockerfile.patched-image` builds `FROM` the
+  pinned digest and runs the patch in `/evolution`. This works because Evolution's build keeps
+  dependencies external: Baileys is read from `/evolution/node_modules` at runtime.
+- **Building Evolution from source** (a fork, or upstream at a tag plus your own patches): run
+  `node <path>/patch-baileys-appstate-resync-loop.mjs` in the build stage right after `npm ci`
+  and before `npm run build`. A patch that changes upstream's `src` can be a `git apply`
+  diff; this one cannot, because `node_modules` does not exist until `npm ci` has run.
+
+**Prove it:** `patch-baileys-appstate-resync-loop.test.cjs`, run with `node --test` from the
+folder that holds `node_modules` after the patch. It cuts the real loop out of the installed
+`chats.js` and runs it with the library's own `extractSyncdPatches` against a stand-in WhatsApp
+that never answers: 1 query, then it ends. With the fix taken back out, the same loop keeps
+querying until the test stops it. Green on rc.9 and rc13.
+
+**Deploying it restarts the service**, which reconnects every number (section 7.3). Ship it when
+no one is connected or off-peak. After the deploy, confirm the `[patch]` line in the build log
+and that numbers came back connected. What only a live number shows is how often WhatsApp leaves
+a sync unanswered: the log line `app-state sync got an empty answer, ending this pass` marks each
+time.
 
 ## 4. Talking to Evolution
 
@@ -742,6 +795,10 @@ CREATE UNIQUE INDEX ON whatsapp_channels (evolution_instance_name) WHERE deleted
     `iproyal-proxies`.
 25. **Deploys lose messages** (section 7.3). **A sleeping hosting plan drops every session.**
 26. **Losing the credential store means every customer re-scans** (section 7.4).
+27. **One unanswered app-state sync loops a blind query every 60 seconds forever** (a Baileys
+    bug, in rc.9 and rc13). Nothing errors and nothing is logged at a normal log level: the
+    socket just keeps sending through the number's proxy. Fixed by a build-time patch
+    (section 3.5).
 
 Still open in the source system, so check them on any new build:
 
@@ -865,6 +922,9 @@ Devices.
 | `server/routes/evolution/admin.ts` | Internal admin: proxy pool view with masked credentials, per-tenant enable |
 | `server/inbound/normalizerEvolution.ts` | Payload to normalized message |
 | `server/whatsapp/evolution/proxyPool.ts`, `iproyalClient.ts`, `brightdataClient.ts`, `ipqsClient.ts`, `server/jobs/evolutionProxyHeal.ts` | The proxy pool. See `references/proxy-pool.md` |
+| `patches/patch-baileys-appstate-resync-loop.mjs` | The build-time Baileys patch for the app-state loop (section 3.5), and the pattern for any library patch |
+| `patches/patch-baileys-appstate-resync-loop.test.cjs` | Runs the installed library's real loop to prove the patch, and the failure without it |
+| `patches/Dockerfile.patched-image` | The pinned image with the patch applied on top |
 | `sql/` | The proxy pool table and its two additions |
 | `scripts/evolution_findmsg.py` | Dump stored messages to inspect real payloads |
 | `scripts/` (the rest) | Proxy provider helpers |
@@ -874,4 +934,4 @@ the server entry file (route mounting, the 2 MB parser, the allowlist), the medi
 download pipeline with its retry schedule, the outbound senders that call the client after their
 business gates, the shared inbound pipeline and its dedupe guard, the ban handler, the
 delivery-status writer, the migrations for the channels, routing and overrides tables, and the
-Evolution fork's patches.
+Evolution fork's source patches (the Baileys app-state patch IS included, under `patches/`).
