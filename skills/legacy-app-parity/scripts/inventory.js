@@ -280,7 +280,8 @@ async () => {
         framePath,
         tag: el.tagName,
         role,
-        type: el.tagName === 'INPUT' ? (el.type || 'text').toLowerCase() : undefined,
+        // For BUTTON this is submit / button / reset: a submit button saves the form on Enter.
+        type: el.tagName === 'INPUT' || el.tagName === 'BUTTON' ? (el.type || 'text').toLowerCase() : undefined,
         label,
         labelSource,
         name: el.getAttribute('name') || undefined,

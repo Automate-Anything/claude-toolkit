@@ -286,7 +286,10 @@ def main():
             item = {'kind': 'rule', 'text': 'MAX LENGTH on "%s": old %s, new %s' % (o.get('label'), om, nm or 'none')}
             (blocking if nm and nm < om else warnings).append(item)
         if o.get('type') and n.get('type') and o['type'] != n['type']:
-            warnings.append({'kind': 'rule', 'text': 'INPUT TYPE on "%s": old %s, new %s (date and number pickers change how people type)' % (o.get('label'), o['type'], n['type'])})
+            if o['_group'] == 'action' and {o['type'], n['type']} & {'submit', 'button', 'reset', 'image'}:
+                warnings.append({'kind': 'rule', 'text': 'BUTTON TYPE on "%s": old %s, new %s (a submit button sends the form, also when Enter is pressed in a field; check it does exactly what the old one did)' % (o.get('label'), o['type'], n['type'])})
+            else:
+                warnings.append({'kind': 'rule', 'text': 'INPUT TYPE on "%s": old %s, new %s (date and number pickers change how people type)' % (o.get('label'), o['type'], n['type'])})
         if o.get('accesskey') and o.get('accesskey') != n.get('accesskey'):
             blocking.append({'kind': 'shortcut', 'text': 'ACCESS KEY on "%s": old Alt+%s, new %s' % (o.get('label'), o['accesskey'], ('Alt+' + n['accesskey']) if n.get('accesskey') else 'none')})
         if o.get('options') and n.get('options') is not None:
@@ -306,6 +309,37 @@ def main():
             warnings.append({'kind': 'state', 'text': 'DISABLED state differs on "%s": old %s, new %s' % (o.get('label'), bool(o.get('disabled')), bool(n.get('disabled')))})
         if bool(o.get('readOnly')) != bool(n.get('readOnly')):
             warnings.append({'kind': 'state', 'text': 'READ-ONLY differs on "%s"' % o.get('label')})
+
+    # Same record on both sides? Fields filled on one side only mean the captures
+    # show different data, which makes the comparison unfair.
+    filled_mismatch = []
+    for o, n, _ in pairs:
+        if o['_group'] in ('text', 'choice') or o.get('type') in ('checkbox', 'radio'):
+            ov_, nv_ = o.get('value', o.get('hasValue')), n.get('value', n.get('hasValue'))
+            if ov_ is not None and nv_ is not None and bool(ov_) != bool(nv_):
+                filled_mismatch.append(o.get('label'))
+            elif 'value' in o and 'value' in n and o['value'] != n['value']:
+                filled_mismatch.append(o.get('label'))
+    if filled_mismatch:
+        warnings.append({'kind': 'data', 'text': 'DATA DIFFERS: %d field(s) hold different content on the two sides (%s). Capture both with the same record, or treat this comparison as NOT_COMPARABLE (DATA_MISMATCH). If the same record really was loaded, the new screen is not showing data it should.' % (len(filled_mismatch), ', '.join('"%s"' % x for x in filled_mismatch[:6]))})
+
+    # Page-wide keyboard handlers written into the old markup (F-keys, Enter, Esc).
+    def keys_in(inv):
+        found = {}
+        for h in inv.get('pageKeyHandlers', []):
+            code = h.get('code', '')
+            for m in re.finditer(r'(?:keyCode|which|charCode)\s*===?\s*(\d+)', code):
+                found[int(m.group(1))] = code
+            for m in re.finditer(r'\bkey\s*===?\s*[\'"](\w+)[\'"]', code):
+                found[m.group(1)] = code
+        return found
+    names = {13: 'Enter', 27: 'Esc', 9: 'Tab'}
+    names.update({112 + i: 'F%d' % (i + 1) for i in range(12)})
+    old_keys, new_keys = keys_in(old_inv), keys_in(new_inv)
+    for k in old_keys:
+        label = names.get(k, k) if isinstance(k, int) else k
+        if k not in new_keys and label not in new_keys:
+            warnings.append({'kind': 'shortcut', 'text': 'SHORTCUT to verify: the old page handles %s (keyCode %s) in its markup: "%s". Not found in the new page markup. New apps often attach key handlers in code, which the inventory cannot see: press %s on the new screen (press_key) and confirm it does the same thing.' % (label, k, old_keys[k][:80], label)})
 
     # Placement relative to neighbours. Every flipped relation is an edge between
     # two controls. Blame the end with more flipped edges (the one that moved);
