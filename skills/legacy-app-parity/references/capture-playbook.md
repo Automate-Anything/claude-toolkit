@@ -67,8 +67,11 @@ owner, or not reachable with your account (listed for owner screenshots).
 
 ### Roles
 
-If the sandbox has several roles, capture the busiest screens once per role and note the differences
-in each screen spec. If you cannot reach a role, list its screens under "Not reachable" in the site map
+Each role's own view is the layout contract for the people in that role: an admin view shows menus
+and buttons the front desk never sees. Capture every screen a role uses while logged in as that role
+(suffix the files, for example `S04@frontdesk.json`), note the differences in each screen spec, and
+compare old and new with the same role on both sides. Use the admin login for completeness (every
+button exists somewhere) and for testing writes. If you cannot reach a role, list its screens under "Not reachable" in the site map
 and ask the owner for screenshots.
 
 ## Behavior

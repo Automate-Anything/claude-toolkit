@@ -62,18 +62,37 @@ session's workspace folders; if it refuses the path, the session was not opened 
 ask the owner to open it there rather than pasting large results into chat. To capture field values
 on sandbox data, change `includeValues: false` to `includeValues: true` in the text you pass.
 
+**Saving effort on big systems (optional).** `inventory.js` is long and a large system needs hundreds
+of captures. On the first screen of the old system, pass it wrapped like this, which runs it and
+keeps a copy in that site's storage inside your own temporary browser profile:
+
+    async () => { const fn = <paste the whole inventory.js here>; localStorage.setItem('__lapInventory', fn.toString()); return await fn(); }
+
+On every later screen of the same site, pass only:
+
+    async () => { const s = localStorage.getItem('__lapInventory'); if (!s) return { error: 'not cached: pass the full script' }; return await (0, eval)('(' + s + ')')(); }
+
+For value captures on sandbox data, use `s.replace('includeValues: false', 'includeValues: true')` in
+place of `s` inside the eval.
+If it returns the error, or the site blocks `eval`, go back to passing the full text. The new app is
+a different site and needs its own first full run. Remove the key at the end
+(`localStorage.removeItem('__lapInventory')`).
+
 ## Phase 0: Intake and safe access (STOP until answered)
 
 Read `references/access-and-safety.md` first. Then ask the owner everything below in ONE batch,
 plain English, with your recommendation first. Skip what the conversation already answered.
 
-1. Which system, its URL, and is it a website or an installed program? (Installed desktop programs:
-   this skill's browser tooling does not apply; say so and work from screenshots and recordings.)
-2. Which account? Recommend, in order: **a sandbox login with admin rights** (fake data, every
-   button visible, write actions safe to test) plus the sandbox API key in `.env.local`; else **a
-   dedicated limited live user** (view everything, create and edit only, no delete, export, settings,
-   user admin or messaging, scoped to an empty test location if possible). Never the owner's super
-   admin on live. Credentials never enter the chat: the owner logs in to your browser window. If
+1. Which system, its URL, and is it a website or an installed program? (Installed programs: the
+   browser scripts do not apply. Say so, work from the owner's screenshots and screen recordings,
+   and for an Electron desktop app consider the `reverse-engineer-anything` skill's Electron
+   observation. The phases, specs and verification below still apply.)
+2. Which account? Recommend, in order: **sandbox logins** (fake data, write actions safe to test):
+   one per staff role (front desk, billing...), because each role's own view is the layout staff
+   know and an admin sees menus they never do, plus one admin login to see every button; and the
+   sandbox API key in `.env.local`. Else **a dedicated limited live user** (view everything, create
+   and edit only, no delete, export, settings, user admin or messaging, scoped to an empty test
+   location if possible). Never the owner's super admin on live. Credentials never enter the chat: the owner logs in to your browser window. If
    the owner already pasted a password, do not use it or repeat it, and suggest they change it.
 3. Where is the replacement app (repo path, how to run it, test login)?
 4. Who uses the old system, in which roles, at what screen size?
@@ -82,6 +101,11 @@ plain English, with your recommendation first. Skip what the conversation alread
 7. Off-limits areas, and anything that must never be clicked.
 8. Is the replacement for internal use only, or will it be sold? If sold, recommend a lawyer reads
    the vendor's terms (many forbid using the service to build a competing product) before Phase 1.
+9. When does the old contract renew and how much notice does it need? That is the real deadline.
+
+If the data is regulated (health, financial, children's records), say plainly that whatever is on
+screen during capture is sent to the AI model, and confirm the owner's compliance setup covers that
+before using any live account. One more reason to insist on the sandbox.
 
 Then run `scripts/scaffold.py --repo <app repo> --system "<name>"`, read `docs/parity/LESSONS.md` if it
 already exists, and record the access decision in `docs/parity/decisions.md`.

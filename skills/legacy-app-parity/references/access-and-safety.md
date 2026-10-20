@@ -19,10 +19,13 @@ customer, or end the owner's contract.
 
 Recommend in this order and record the choice in `decisions.md`.
 
-**A. Sandbox web login with admin rights (best).** Ask the owner to ask the vendor whether the
-sandbox has a web login (often a separate address). Admin rights are safe there: data is fake,
-nothing real can be lost or exposed, and every button is visible, including the Delete buttons a
-limited role would hide. Ask the vendor two more things: does the sandbox run the same version and
+**A. Sandbox web logins: one per staff role, plus one admin (best).** Ask the owner to ask the
+vendor whether the sandbox has a web login (often a separate address). The layout reference for
+each person is the view of THEIR role: an admin sees menus, tabs and buttons the front desk never
+sees, and a rebuild mapped from the admin view would put unfamiliar things in front of staff. So
+capture each staff role's view as the contract for that role, and use the admin login to see every
+button (including Delete buttons a role hides) and to test write actions. Admin rights are safe in
+the sandbox: data is fake and nothing real can be lost or exposed. Ask the vendor two more things: does the sandbox run the same version and
 modules as the live account, and can the owner's custom fields and settings be copied in? A sandbox
 that lacks modules or custom fields must be compared against live menus (owner screenshots), with
 every difference listed.
