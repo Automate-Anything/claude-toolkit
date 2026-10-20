@@ -45,6 +45,7 @@ This folder IS the toolkit. `install.py` copies it where each agent looks.
 | Engineering discipline | Performance, query efficiency, RLS, auth, URL structure, timezones, verifying before calling something done, safe database writes, debugging. |
 | Money systems | The money-truth doctrine, POS checkout, payment processor integration, SaaS subscriptions, commissions, memberships and packages, reports. |
 | AI agents | Internal write-agents, the model/feature platform, multi-agent assistants, AI data migration. |
+| Replacing old systems | `legacy-app-parity`: make the owner's app a drop-in replacement for a system they pay for, matching its layout and behavior so staff need no retraining, with bundled inventory, diff and report scripts. |
 | Phone, voice, messaging | Retell and self-hosted voice agents, voice prompting, number provisioning, WhatsApp (managed and self-hosted), proxies, email. |
 | Running a product | Support triage, help center upkeep, onboarding, public API upkeep, ticketing, website builder, release emails. |
 | Deploy and devices | Release sequence, deploy freshness, maintenance banner, alert patrol, iOS from Windows, Android, Tauri desktop, GPU runs. |

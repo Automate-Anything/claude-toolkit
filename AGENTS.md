@@ -87,6 +87,11 @@ Before doing work a skill covers, read that skill first. Highlights:
   `multi-agent-assistant-architecture`, `inject-tool-knowledge-on-use`,
   `ai-data-migration-agent`, `universal-migration-connector`,
   `competitor-data-migration`.
+- Replacing a system the business pays for: `legacy-app-parity` (make the
+  owner's own app a drop-in replacement with the same layout and behavior so
+  nobody needs retraining; drives the old system in a browser, inventories and
+  diffs every screen, works with `browser-verification`,
+  `reverse-engineer-anything` and `competitor-data-migration`).
 - Phone and voice: `retell-phone-agent`, `voice-agent-prompting`,
   `self-hosted-voice-agent`, `phone-number-provisioning`,
   `voice-mishear-aliases`, `signalwire-docs`.

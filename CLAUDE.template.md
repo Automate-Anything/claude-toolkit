@@ -467,6 +467,7 @@ full. `AGENTS.md` in the toolkit has the complete index by category, and
 | Handling a customer support request | `support-triage` |
 | Building or changing a public API | `public-api-upkeep`, `standard-api-design` |
 | Importing a customer's data from another system | `ai-data-migration-agent`, `competitor-data-migration` |
+| Replacing a system the business pays for, or matching another app's screens and behavior | `legacy-app-parity` |
 | Working on iOS, Android, or a desktop app | `ios-build-from-windows`, `apple-app-store-submission`, `android-device-bridge`, `tauri-desktop-app` |
 | Working on search visibility | `seo`, `local-seo-playbook` |
 | Managing several agents | `acting-as-the-manager` |
