@@ -45,7 +45,7 @@ two match.
 | `scripts/ready.js` | Capture gate. Run before every capture; capture only when `status` is `READY`. |
 | `scripts/inventory.js` | The layout contract of one screen: every control with label, position, order, tab order, field rules, menu path, row actions, tables, headings, prominent text, frames. Finds JS-bound clickables the accessibility tree misses. |
 | `scripts/tokens.js` | Colors, fonts, sizes, spacing, radii and their likely roles, from computed styles on logged-in pages. |
-| `scripts/layout_diff.py` | Old inventory vs new inventory: missing controls, label changes, controls that moved relative to their neighbours, tab order, required/max length/options/access keys, table columns, lost titles. Exit 1 on blocking differences. |
+| `scripts/layout_diff.py` | Old inventory vs new inventory: missing controls, label changes, controls that moved relative to their neighbours, tab order, required/max length/options/access keys, table columns, lost titles, key handlers to verify, button types, lost form names, density, and captures that show different data. Exit 1 on blocking differences. |
 | `scripts/state_diff.py` | Before/after inventories around ONE action: what got enabled, hidden, filled, recalculated, which messages appeared. The difference is the behavior. |
 | `scripts/net_schema.py` | Captured traffic to a value-free data-model catalog: endpoints, fields, types, which screen action fired each. |
 | `scripts/coverage.py` | Unvisited screens, links too dangerous to open by URL, click-only targets, menu entries missing from the site map, progress counts. |

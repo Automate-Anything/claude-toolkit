@@ -35,6 +35,11 @@ What it checks and why:
 | Access key lost | Alt+S stops saving |
 | Table columns missing or reordered | They read columns by position |
 | Titles and prominent labels missing | Orientation cues gone |
+| Page-level key handlers (F-keys, Enter, Esc) not found in the new markup | F2-to-save habits break; press the key on the new screen to confirm, since handlers attached in code are invisible to the inventory |
+| Button type changed (submit vs button) | Enter in a field, or a Cancel click, may suddenly save |
+| A field lost its form name (when the new screen names its other fields) | The value may silently not save |
+| Fewer table rows fit, or the screen now scrolls | Density is part of the contract; long lists get slower to work |
+| Fields filled on one side only | The two captures show different data: recapture, or the comparison is NOT_COMPARABLE |
 
 Blocking items are fixed, or recorded in `decisions.md` as approved deviations (and approved label
 changes go in `renames.json`). Warnings are each looked at. Small shifts with unchanged neighbours are

@@ -20,7 +20,7 @@ Inputs are the JSON files written by inventory.js (same viewport, same data).
 
 Usage:
   python3 layout_diff.py OLD.json NEW.json [--renames renames.json]
-      [--drift 0.08] [--far 0.25] [--include-hidden] [--md out.md] [--json out.json]
+      [--drift 0.2] [--far 0.4] [--include-hidden] [--md out.md] [--json out.json]
 
 Exit code: 0 no blocking differences, 1 blocking differences, 2 bad input.
 Stdlib only, Python 3.9+.
@@ -310,6 +310,22 @@ def main():
         if bool(o.get('readOnly')) != bool(n.get('readOnly')):
             warnings.append({'kind': 'state', 'text': 'READ-ONLY differs on "%s"' % o.get('label')})
 
+    # A field that lost its form name is not sent when the new screen posts a plain
+    # HTML form. Only meaningful when the new screen names its other fields.
+    field_groups = ('text', 'choice', 'check', 'radio', 'slider', 'file')
+    if any(n.get('name') for n in new if n['_group'] in field_groups):
+        for o, n, _ in pairs:
+            if o['_group'] in field_groups and o.get('name') and not n.get('name'):
+                warnings.append({'kind': 'data', 'text': 'FORM NAME lost on "%s": the old form sent it as "%s"; the new field has no name, so a plain form post will not send it. Save a value and reopen the record to check it persists.' % (o.get('label'), o['name'])})
+
+    # Density: staff see a whole record or list without scrolling.
+    om_, nm_ = old_inv.get('meta', {}), new_inv.get('meta', {})
+    try:
+        if om_['docSize']['h'] <= om_['viewport']['h'] + 5 and nm_['docSize']['h'] > nm_['viewport']['h'] + 5:
+            warnings.append({'kind': 'density', 'text': 'NOW SCROLLS: the old screen fit in the window (%spx), the new one needs scrolling (%spx tall). Information density is part of the contract.' % (om_['viewport']['h'], nm_['docSize']['h'])})
+    except (KeyError, TypeError):
+        pass
+
     # Same record on both sides? Fields filled on one side only mean the captures
     # show different data, which makes the comparison unfair.
     filled_mismatch = []
@@ -430,6 +446,18 @@ def main():
         added = [h for h in nk if h not in ok]
         if added:
             warnings.append({'kind': 'table', 'text': 'COLUMNS added in "%s": %s' % (title, ', '.join(added))})
+        # Rows visible without scrolling, estimated from row height and table position.
+        try:
+            vh_o = old_inv['meta']['viewport']['h']
+            vh_n = new_inv['meta']['viewport']['h']
+            rh_o = t['rect']['h'] / float(max(1, t.get('rowCount', 1)))
+            rh_n = best_t['rect']['h'] / float(max(1, best_t.get('rowCount', 1)))
+            vis_o = max(0.0, (vh_o - t['rect']['y']) / rh_o)
+            vis_n = max(0.0, (vh_n - best_t['rect']['y']) / rh_n)
+            if vis_o >= 3 and vis_n < 0.75 * vis_o:
+                warnings.append({'kind': 'density', 'text': 'FEWER ROWS fit on screen in "%s": about %d before scrolling, was about %d (row height %.0fpx, was %.0fpx). Staff with long lists will scroll more.' % (title, vis_n, vis_o, rh_n, rh_o)})
+        except (KeyError, TypeError, ZeroDivisionError):
+            pass
         lost_sort = [h for h in t.get('sortableHeaders', []) if norm(h) not in [norm(x) for x in best_t.get('sortableHeaders', [])]]
         if lost_sort and best_t.get('sortableHeaders') is not None:
             warnings.append({'kind': 'table', 'text': 'SORTING may be lost on "%s" columns: %s (verify by clicking)' % (title, ', '.join(lost_sort))})
