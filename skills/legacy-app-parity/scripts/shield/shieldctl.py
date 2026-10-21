@@ -44,6 +44,10 @@ CHROME_CANDIDATES = [
 ]
 
 
+class _StartError(Exception):
+    pass
+
+
 def home() -> str:
     return os.path.expanduser(os.environ.get("PARITY_SHIELD_HOME", "~/.parity-shield"))
 
@@ -234,46 +238,56 @@ def start(cfg_path: str, headless: bool = False, chrome: str = None, url: str = 
     proxy = subprocess.Popen([venv_python(), os.path.join(HERE, "shield_run.py"), "--config", os.path.abspath(cfg_path),
                               "--run-id", run_id, "--home", home()], stdout=fd, stderr=fd, start_new_session=True)
     os.close(fd)
-    status = None
-    for _ in range(60):
-        if proxy.poll() is not None:
-            break
-        try:
-            status = shield_status(pport, 1.0)
-            if status.get("run") == run_id:
-                break
-        except OSError:
-            pass
-        time.sleep(0.5)
-    if not status or status.get("run") != run_id or status.get("shield") != "enforce":
-        proxy.terminate()
-        with open(out_path, encoding="utf-8", errors="replace") as f:
-            tail = f.read()[-800:]
-        die("the shield did not come up healthy; Chrome was NOT started.\n" + tail, 3)
-    spki = spki_of_ca()
-    write_chrome_prefs(profile)
-    exe = find_chrome(chrome)
-    args = [exe] + chrome_flags(cfg, profile, os.path.join(run_dir, "cache"), spki, headless)
-    args.append(url or "https://%s/status" % shield_core.MAGIC_HOST)
-    cfd = os.open(os.path.join(run_dir, "chrome.out"), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    chrome_p = subprocess.Popen(args, stdout=cfd, stderr=cfd, start_new_session=True)
-    os.close(cfd)
-    ok = False
-    for _ in range(60):
-        try:
-            with urllib.request.urlopen("http://127.0.0.1:%d/json/version" % dport, timeout=1) as r:
-                ok = r.status == 200
-                break
-        except OSError:
-            time.sleep(0.5)
-    info = {"run_id": run_id, "proxy_pid": proxy.pid, "chrome_pid": chrome_p.pid, "proxy_port": pport,
+    # Record the proxy pid immediately, so a crash between here and the end still
+    # leaves a run.json that `stop` can clean up (no orphaned proxy).
+    info = {"run_id": run_id, "proxy_pid": proxy.pid, "chrome_pid": None, "proxy_port": pport,
             "debug_port": dport, "config": os.path.abspath(cfg_path), "browser_url": "http://127.0.0.1:%d" % dport,
             "started": datetime.datetime.now().isoformat(timespec="seconds"), "headless": headless}
     write_private(os.path.join(home(), "run.json"), json.dumps(info, indent=2))
-    if not ok:
+    try:
+        status = None
+        for _ in range(60):
+            if proxy.poll() is not None:
+                break
+            try:
+                status = shield_status(pport, 1.0)
+                if status.get("run") == run_id:
+                    break
+            except OSError:
+                pass
+            time.sleep(0.5)
+        if not status or status.get("run") != run_id or status.get("shield") != "enforce":
+            with open(out_path, encoding="utf-8", errors="replace") as f:
+                tail = f.read()[-800:]
+            raise _StartError("the shield did not come up healthy; Chrome was NOT started.\n" + tail)
+        spki = spki_of_ca()
+        write_chrome_prefs(profile)
+        exe = find_chrome(chrome)
+        args = [exe] + chrome_flags(cfg, profile, os.path.join(run_dir, "cache"), spki, headless)
+        args.append(url or "https://%s/status" % shield_core.MAGIC_HOST)
+        cfd = os.open(os.path.join(run_dir, "chrome.out"), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        chrome_p = subprocess.Popen(args, stdout=cfd, stderr=cfd, start_new_session=True)
+        os.close(cfd)
+        info["chrome_pid"] = chrome_p.pid
+        write_private(os.path.join(home(), "run.json"), json.dumps(info, indent=2))
+        ok = False
+        for _ in range(60):
+            if chrome_p.poll() is not None:
+                break
+            try:
+                with urllib.request.urlopen("http://127.0.0.1:%d/json/version" % dport, timeout=1) as r:
+                    ok = r.status == 200
+                    break
+            except OSError:
+                time.sleep(0.5)
+        if not ok:
+            raise _StartError("Chrome did not open its debugging port.")
+        return info
+    except BaseException as e:  # noqa: BLE001
         stop_run(info)
-        die("Chrome did not open its debugging port; everything was stopped.", 3)
-    return info
+        if isinstance(e, _StartError):
+            die(str(e), 3)
+        raise
 
 
 def cmd_start(a) -> None:
@@ -306,21 +320,36 @@ def cmd_status(a) -> None:
                       "shield": st}, indent=2))
 
 
+def _looks_like_ours(pid, needles) -> bool:
+    """Guard against killing an unrelated process that reused the pid."""
+    try:
+        out = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return any(n in out for n in needles)
+
+
 def stop_run(info) -> None:
+    hints = {"chrome_pid": ("chrome-profile", "parity-shield", "remote-debugging-port"),
+             "proxy_pid": ("shield_run.py", "parity-shield")}
     for key in ("chrome_pid", "proxy_pid"):
         pid = info.get(key)
-        if pid and pid_alive(pid):
+        if not pid or not pid_alive(pid) or not _looks_like_ours(pid, hints[key]):
+            continue
+        for sig in (signal.SIGTERM, signal.SIGKILL):
             try:
-                os.killpg(os.getpgid(pid), signal.SIGTERM)
+                os.killpg(os.getpgid(pid), sig)
             except OSError:
                 try:
-                    os.kill(pid, signal.SIGTERM)
+                    os.kill(pid, sig)
                 except OSError:
-                    pass
-    for _ in range(20):
-        if not any(pid_alive(info.get(k)) for k in ("chrome_pid", "proxy_pid") if info.get(k)):
-            break
-        time.sleep(0.25)
+                    break
+            for _ in range(12):
+                if not pid_alive(pid):
+                    break
+                time.sleep(0.25)
+            if not pid_alive(pid):
+                break
     try:
         os.remove(os.path.join(home(), "control.json"))
     except OSError:

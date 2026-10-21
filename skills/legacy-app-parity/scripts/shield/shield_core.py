@@ -51,12 +51,31 @@ DEFAULT_BLOCKED_HOST_PARTS = [
     "clixsign", "forthpay", "forth-pay", "dialer", "twilio", "sendgrid", "mailgun", "postmark",
     "mandrill", "experian", "equifax", "transunion", "plaid", "nmi.com", "authorize.net", "epps",
 ]
+AUTH_WORDS = {"login", "signin", "sign-in", "session", "sessions", "auth", "authenticate", "token", "mfa", "2fa",
+              "otp", "verify", "saml", "sso", "callback", "oauth", "logon"}
 AUTH_PATH = re.compile(
     r"/(login|signin|sign-in|session|sessions|auth|authenticate|oauth/token|token|mfa|2fa|otp|verify|saml|sso|callback)/?$",
     re.I,
 )
+
+
+def _decode_query(q: str) -> str:
+    """Normalise a query string for exact comparison (sorted decoded key=value)."""
+    return "&".join("%s=%s" % (k, v) for k, v in sorted(parse_qsl(q, keep_blank_values=True)))
+
+
+def _is_tight_auth_path(path: str) -> bool:
+    """A login path is at most 2 segments, no digits, last segment an auth word.
+    This keeps the generic login window off /clients/5/verify and /bank/5/token."""
+    segs = [s for s in path.lower().split("/") if s]
+    if not segs or len(segs) > 2 or any(any(c.isdigit() for c in s) for s in segs):
+        return False
+    return segs[-1] in AUTH_WORDS or ("oauth" in segs and "token" in segs)
 CODE_EXT = re.compile(r"\.(js|mjs|css|woff2?|ttf|otf|eot|map)$", re.I)
 IMAGE_EXT = re.compile(r"\.(png|jpe?g|gif|webp|bmp|tiff?|heic|svg|ico|avif)$", re.I)
+# The only things passed through untouched on a static path: code, fonts, images.
+# Not PDFs, spreadsheets, archives or anything else that could carry records.
+STATIC_EXT = re.compile(r"\.(js|mjs|css|woff2?|ttf|otf|eot|map|png|jpe?g|gif|webp|bmp|ico|avif|svg)$", re.I)
 
 
 def _tokens(text: str) -> list[str]:
@@ -73,15 +92,51 @@ def _decode(s: str) -> str:
     return s
 
 
+def _verb_forms(verb: str) -> set:
+    """base, plural, and -ing/-ed with the usual spelling changes (delete->deleting,
+    cancel->cancelling), so a danger verb is caught in any ordinary tense."""
+    forms = {verb, verb + "s", verb + "es", verb + "d", verb + "ed", verb + "ing"}
+    if verb.endswith("e"):
+        forms |= {verb[:-1] + "ing", verb[:-1] + "ed"}
+    if len(verb) >= 3 and verb[-1] not in "aeiou" and verb[-2] in "aeiou" and verb[-3] not in "aeiou":
+        forms |= {verb + verb[-1] + "ing", verb + verb[-1] + "ed"}  # cancel -> cancelling
+    if verb.endswith("y"):
+        forms |= {verb[:-1] + "ies", verb[:-1] + "ied"}
+    return forms
+
+
+# Noun tails that make a joined-up word a danger word: deleteClient, voidPayment.
+JOIN_NOUNS = ("client", "clients", "customer", "contact", "payment", "payments", "draft", "drafts", "account",
+              "accounts", "record", "records", "invoice", "invoices", "settlement", "settlements", "document",
+              "documents", "file", "files", "email", "emails", "sms", "message", "statement", "user", "note",
+              "notes", "case", "lead", "all", "batch", "now", "it", "this", "selected", "esign", "signature")
+
+
 def danger_words_in(path: str, query: str, extra: list[str] | None = None) -> list[str]:
     verbs = DANGER_VERBS + [w.lower() for w in (extra or [])]
-    forms = {v + e for v in verbs for e in VERB_ENDINGS}
+    forms = set()
+    for v in verbs:
+        forms |= _verb_forms(v)
+    for v in ("delete", "remove", "cancel", "send", "pay", "charge", "void", "approve", "refund", "submit", "reset"):
+        forms.add("re" + v)
+    long_verbs = [v for v in verbs if len(v) >= 4]
     hits: list[str] = []
     parts = [_decode(path)] + [_decode(k) + " " + _decode(v) for k, v in parse_qsl(query, keep_blank_values=True)]
     for part in parts:
         for t in _tokens(part):
-            if t in forms and t not in hits:
+            if t in hits:
+                continue
+            if t in forms:
                 hits.append(t)
+                continue
+            # Joined-up word with no camelCase or separator: deleteclient, voidpayment.
+            for v in long_verbs:
+                if t.startswith(v) and t[len(v):] in JOIN_NOUNS:
+                    hits.append(t)
+                    break
+                if t.endswith(v) and t[:-len(v)] in JOIN_NOUNS:
+                    hits.append(t)
+                    break
     return hits
 
 
@@ -146,12 +201,19 @@ def validate_config(cfg: dict, today: _dt.date | None = None) -> dict:
     def exact(rule, keys, what):
         if not isinstance(rule, dict):
             raise ConfigError("%s entries must be objects" % what)
+        allowed = set(keys) | {"query", "max_body"}
+        extra = set(rule) - allowed
+        if extra:
+            raise ConfigError("%s rule has unexpected key(s): %s" % (what, ", ".join(sorted(extra))))
         for k in keys:
             v = rule.get(k)
             if not isinstance(v, str) or not v:
                 raise ConfigError("%s rule needs %s" % (what, k))
             if k in ("host", "path") and re.search(r"[*?\[\]()|^$\\+{}]", v):
                 raise ConfigError("%s rule %s must be exact, no wildcards or patterns: %r" % (what, k, v))
+        q = rule.get("query", "")
+        if not isinstance(q, str):
+            raise ConfigError("%s rule query must be a string" % what)
         if "path" in keys and not rule["path"].startswith("/"):
             raise ConfigError("%s rule path must start with /" % what)
 
@@ -176,6 +238,17 @@ def validate_config(cfg: dict, today: _dt.date | None = None) -> dict:
             re.compile(cfg["static_paths"])
         except re.error as e:
             raise ConfigError("static_paths is not a valid pattern: %s" % e)
+    for sh in cfg.get("static_hosts", []):
+        if not isinstance(sh, str) or not sh:
+            raise ConfigError("static_hosts must be non-empty strings")
+        if any(host_matches(sh, t) or host_matches(t, sh) for t in targets):
+            raise ConfigError("a static_host may not overlap a target host: %r" % sh)
+    mask = cfg.get("mask")
+    if mask is not None:
+        if not isinstance(mask, dict) or set(mask) - {"extra_keys"}:
+            raise ConfigError("mask may only contain extra_keys")
+        if not all(isinstance(k, str) for k in mask.get("extra_keys", [])):
+            raise ConfigError("mask.extra_keys must be strings")
     rate = cfg.get("rate_per_sec", 4)
     if not isinstance(rate, (int, float)) or not 0 < rate <= 20:
         raise ConfigError("rate_per_sec must be between 0 and 20")
@@ -231,18 +304,23 @@ def decide(req: Request, cfg: dict, now: float, login: LoginWindow | None = None
         words = danger_words_in(path, req.query, cfg.get("danger_words"))
         if words:
             for r in cfg.get("allow_get", []):
-                if host_matches(host, r["host"]) and path == r["path"]:
+                if host_matches(host, r["host"]) and path == r["path"] and _decode_query(req.query) == _decode_query(r.get("query", "")):
                     return Decision(True, "allow_get exception", "read")
             return Decision(False, "risky word(s) in a GET: %s" % ", ".join(words[:5]), "danger-get")
         return Decision(True, "read", "read")
 
     if method == "OPTIONS":
-        if "origin" in h and "access-control-request-method" in h and req.body_len == 0:
+        # A real preflight is answered locally by the addon (kind "preflight"); it
+        # is never forwarded, so a handler that acts on OPTIONS can't be reached.
+        if "origin" in h and "access-control-request-method" in h and req.body_len == 0 and not req.query:
             return Decision(True, "CORS preflight", "preflight")
-        return Decision(False, "OPTIONS that is not a CORS preflight", "method")
+        return Decision(False, "OPTIONS that is not a plain CORS preflight", "method")
+
+    def query_ok(rule):
+        return _decode_query(req.query) == _decode_query(rule.get("query", ""))
 
     for r in cfg.get("pinned_writes", []):
-        if r["method"] == method and host_matches(host, r["host"]) and path == r["path"]:
+        if r["method"] == method and host_matches(host, r["host"]) and path == r["path"] and query_ok(r):
             if _dt.date.fromisoformat(r["expires"]) < today:
                 continue
             if req.body_len > r["max_body"]:
@@ -250,9 +328,14 @@ def decide(req: Request, cfg: dict, now: float, login: LoginWindow | None = None
             return Decision(True, "pinned: %s" % r["reason"][:60], "pinned")
 
     if login and method == "POST" and login.open_for(host, now):
-        exact_ok = any(r["method"] == method and host_matches(host, r["host"]) and path == r["path"]
-                       for r in cfg.get("login_rules", []))
-        if exact_ok or AUTH_PATH.search(path):
+        rules = cfg.get("login_rules", [])
+        host_rules = [r for r in rules if host_matches(host, r["host"])]
+        if host_rules:
+            # Once this host has pinned login paths, ONLY those are allowed.
+            if any(r["method"] == method and path == r["path"] and query_ok(r) for r in host_rules):
+                return Decision(True, "login window (pinned)", "login")
+            return Decision(False, "POST not in this host's login rules", "write")
+        if not req.query and _is_tight_auth_path(path):
             return Decision(True, "login window", "login")
 
     return Decision(False, "%s blocked (read-only shield)" % method, "write")
@@ -297,6 +380,38 @@ TABLE_PARENTS = re.compile(r"^(data|aadata|rows|records|items|results|list)$")
 LABEL_KEYS = {"label", "name", "key", "field", "fieldname", "title"}
 
 
+OPTION_TEXT_KEYS = {"label", "text", "option", "display", "displaytext", "caption"}
+_SAFE_ID = re.compile(r"^(?:\d+|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+                      r"|[A-Za-z]{1,6}[-_]?\d{1,12}|[0-9a-fA-F]{16,40})$")
+# Cell content kept unmasked: money, counts, percentages, dates. Short ALPHA cells
+# are kept ONLY when every word is interface/status vocabulary, because by shape
+# alone a short word like "Zebulon" is indistinguishable from "Enrolled".
+_KEEP_NUM = re.compile(r"^[\s$€£()]*-?[\d,]+(\.\d+)?\)?%?\s*$|"  # amounts, counts, percentages
+                       r"^\d{1,4}[/\-.]\d{1,2}[/\-.]\d{1,4}([ T].*)?$")  # dates
+STATUS_WORDS = set("""active inactive pending paid unpaid open closed cancelled canceled completed complete approved
+declined rejected new settled settling current overdue draft drafts enrolled enrollment withdrawn hold onhold review
+in progress done failed success error sent received scheduled processing processed yes no true false na none all
+high low medium urgent normal flagged verified unverified default primary secondary""".split()) | {"n/a"}
+
+
+def _is_safe_id(v) -> bool:
+    if isinstance(v, int):
+        return True
+    return isinstance(v, str) and bool(_SAFE_ID.match(v))
+
+
+def _is_keepable_cell(c: str) -> bool:
+    s = c.strip()
+    if not s or len(s) > 24:
+        return False
+    if "@" in s or PAT_SSN.search(s) or PAT_PHONE.search(s):
+        return False
+    if _KEEP_NUM.match(s):
+        return True
+    words = re.split(r"[\s/&\-]+", s.lower())
+    return all(w in STATUS_WORDS or w in UI_WORDS for w in words if w)
+
+
 def norm_key(k: str) -> str:
     return re.sub(r"[^a-z0-9]", "", str(k).lower())
 
@@ -317,10 +432,20 @@ def is_strong_key(nk: str) -> bool:
 
 PAT_SSN = re.compile(r"(?<!\d)(\d{3})([- ]?)(\d{2})\2(\d{4})(?!\d)")
 PAT_SSN_DASHED = re.compile(r"(?<!\d)(\d{3})(-)(\d{2})-(\d{4})(?!\d)")
+PAT_SSN_PARTIAL = re.compile(r"(?i)(?:x{3}|\*{3})[- ]?(?:x{2}|\*{2})[- ]?\d{4}|(?<!\d)\d{3}[- ]\d{2}[- ]x{4}(?!\d)")
+PAT_EIN = re.compile(r"(?<!\d)\d{2}-\d{7}(?!\d)")
 PAT_EMAIL = re.compile(r"[A-Za-z0-9._%+\-]+(?:@|%40)[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
-PAT_PHONE = re.compile(r"(?<![\d.])(?:\+?1[ .\-]?)?\(?\d{3}\)?[ .\-]\d{3}[ .\-]\d{4}(?![\d.])")
+# Phone: optional country code, optional separators (including none): (646)231-7788, 6462317788, +16462317788.
+PAT_PHONE = re.compile(r"(?<![\d.])(?:\+?1[ .\-]?)?\(?\d{3}\)?[ .\-]?\d{3}[ .\-]?\d{4}(?![\d.])")
 PAT_CARD = re.compile(r"(?<!\d)(?:\d[ \-]?){12,18}\d(?!\d)")
 PAT_ZIP4 = re.compile(r"(?<!\d)\d{5}-\d{4}(?!\d)")
+PAT_LONGNUM = re.compile(r"(?<![\d.])\d{10,17}(?![\d.])")  # account-number-length digit runs
+# "DOB: 02/03/1980", "SSN - 123456789", "Acct# 000123456789".
+PAT_LABELED = re.compile(r"(?i)\b(dob|d\.o\.b|date of birth|ssn|social|tin|ein|acct|account|routing|aba|member|card)\b"
+                         r"\s*[:#\-]?\s*([()\d][\d()\-. /]{3,25}\d)")
+# "Quartermaine, Zebulon" and ALL-CAPS "QUARTERMAINE, ZEBULON" or "ZEBULON QUARTERMAINE".
+PAT_NAME_COMMA = re.compile(r"\b([A-Z][\w'\-]+|[A-Z]{2,})\s*,\s*([A-Z][\w'\-]+|[A-Z]{2,})(?:\s+[A-Z]\.?)?\b")
+PAT_NAME_CAPS = re.compile(r"\b[A-Z][A-Z'\-]{1,}(?:\s+[A-Z][A-Z'\-]{1,}){1,2}\b")
 PAT_STREET = re.compile(r"\b\d{1,6}\s+(?:[A-Za-z0-9.'\-]+\s){1,4}(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Dr|"
                         r"Drive|Ln|Lane|Ct|Court|Way|Pl|Place|Pkwy|Parkway|Hwy|Highway|Cir|Circle|Ter|Terrace|Trl|"
                         r"Trail|Sq|Square)\b\.?", re.I)
@@ -347,7 +472,10 @@ scheduled search section select send service settings settle settlement settleme
 statement statements submit summary support system task tasks team template templates text the to today toggle tools
 total totals transaction transactions trigger triggers update upload user users view welcome workflow workflows your
 """.split())
-NAME_RUN = re.compile(r"\b([A-Z][a-z'\-]{1,30})((?:\s+[A-Z][a-z'\-]{1,30}){1,2})\b")
+# A person name: 2-3 capitalized words, allowing McDonald / DeShawn / O'Brien and
+# accented letters (Jose Garcia, Zoe Muller). Unicode-aware.
+_CAPWORD = r"[A-ZÀ-ɏ][\w'À-ɏ.\-]{1,30}"
+NAME_RUN = re.compile(r"(" + _CAPWORD + r")((?:\s+" + _CAPWORD + r"){1,2})", re.UNICODE)
 
 
 def luhn_ok(digits: str) -> bool:
@@ -412,14 +540,21 @@ class Masker:
         return self._known_re.sub(lambda m: self._known[m.group(1)], text)
 
     def mask_names(self, text: str) -> str:
-        """Possible person names (runs of Capitalized words not made of interface
-        words) plus anything learned. For titles, headings and ARIA text."""
+        """Possible person names: a run of capitalized words (also ALL-CAPS and
+        "Last, First") that has at least two words which are NOT interface words,
+        so "Jose Garcia" and "QUARTERMAINE, ZEBULON" mask but menu labels like
+        "Payment Plans" or "Client Details" are left alone. Plus learned names
+        (which mask even a lone reappearance)."""
         def run(m):
-            words = (m.group(1) + m.group(2)).split()
-            if all(w.lower() in UI_WORDS for w in words):
-                return m.group(0)
-            return self.fpe(m.group(0))
-        return NAME_RUN.sub(run, self.apply_known(text))
+            whole = m.group(0)
+            words = [w for w in re.split(r"[\s,]+", whole) if w]
+            non_ui = [w for w in words if w.lower() not in UI_WORDS]
+            return self.fpe(whole) if len(non_ui) >= 2 else whole
+        text = self.apply_known(text)
+        text = PAT_NAME_COMMA.sub(run, text)
+        text = NAME_RUN.sub(run, text)
+        text = PAT_NAME_CAPS.sub(run, text)
+        return text
 
     # ----- primitives -----
     def _stream(self, value: str):
@@ -496,11 +631,15 @@ class Masker:
         text = PAT_B64.sub("[masked-blob]", text)
         text = PAT_EMAIL.sub(lambda m: self.email(m.group(0)), text)
         text = PAT_CARD.sub(card, text)
+        text = PAT_LABELED.sub(lambda m: m.group(1) + m.group(0)[len(m.group(1)):-len(m.group(2))] + self.fpe(m.group(2)), text)
         text = PAT_SSN.sub(self.ssn, text)
+        text = PAT_SSN_PARTIAL.sub(lambda m: self.fpe(m.group(0)), text)
+        text = PAT_EIN.sub(lambda m: self.fpe(m.group(0)), text)
         text = PAT_PHONE.sub(lambda m: self.phone(m.group(0)), text)
         text = PAT_ZIP4.sub(lambda m: self.fpe(m.group(0)), text)
         text = PAT_STREET.sub(lambda m: self.fpe(m.group(0)), text)
         text = re.sub(r"(?<!\d)\d{9}(?!\d)", lambda m: self.fpe(m.group(0)) if aba_ok(m.group(0)) else m.group(0), text)
+        text = PAT_LONGNUM.sub(lambda m: self.fpe(m.group(0)), text)
         return text
 
     def mask_url(self, text: str) -> str:
@@ -567,8 +706,17 @@ class Masker:
                 pass
 
     def _mask_all(self, v, nk: str):
+        # Everything under an identifying key is masked, EXCEPT nested record ids
+        # (so a masked "bankAccounts" list still has usable ids to navigate by).
         if isinstance(v, dict):
-            return {k: self._mask_all(x, nk) for k, x in v.items()}
+            out = {}
+            for k, x in v.items():
+                ck = norm_key(k)
+                if ID_KEY.match(ck) and _is_safe_id(x):
+                    out[k] = x
+                else:
+                    out[k] = self._mask_all(x, nk)
+            return out
         if isinstance(v, list):
             return [self._mask_all(x, nk) for x in v]
         return self.mask_scalar(nk, v)
@@ -588,18 +736,25 @@ class Masker:
                     out[k] = self._mask_all(v, nk)
                 elif nk == "value" and label_is_pii:
                     out[k] = self._mask_all(v, norm_key(label))
+                elif nk in OPTION_TEXT_KEYS and isinstance(v, str) and NAME_RUN.fullmatch(v.strip()):
+                    # autocomplete / Select2 option text that is a person name
+                    self.learn(v)
+                    out[k] = self.fpe(v)
                 elif ctx and nk in CONTEXT_KEYS and not isinstance(v, (dict, list)):
                     out[k] = self.mask_scalar(nk, v)
                 elif ID_KEY.match(nk) and isinstance(v, (str, int)):
-                    out[k] = v
+                    # An id keeps its value only if it is a plain record id (int, UUID,
+                    # or prefix+digits). An id field holding an email/SSN is still masked.
+                    out[k] = v if _is_safe_id(v) else self.mask_patterns(str(v)) if isinstance(v, str) else v
                 else:
                     out[k] = self.mask_json(v, str(k), ctx and isinstance(v, (dict, list)))
             return out
         if isinstance(obj, list):
             if (obj and TABLE_PARENTS.match(norm_key(parent_key)) and all(isinstance(r, list) for r in obj)
                     and all(not isinstance(c, (dict, list)) for r in obj for c in r)):
-                # DataTables-style rows: every string cell is record data.
-                return [[self.fpe(c) if isinstance(c, str) else c for c in r] for r in obj]
+                # DataTables-style rows: every string cell is record data (amounts,
+                # dates and short statuses kept so the parity work can read them).
+                return [[self.fpe(c) if (isinstance(c, str) and not _is_keepable_cell(c)) else c for c in r] for r in obj]
             return [self.mask_json(v, parent_key, person_ctx) for v in obj]
         if isinstance(obj, str):
             s = obj.strip()
@@ -671,6 +826,9 @@ class Masker:
                 self.learn(m.group(4))
 
     def mask_html(self, html: str) -> str:
+        # Drop HTML comments outright: they are not rendered but reach outerHTML, and
+        # legacy pages sometimes park record data (even SSNs) in them.
+        html = re.sub(r"<!--.*?-->", "", html, flags=re.S)
         self._learn_from_html(html)
         out, pos = [], 0
         for m in re.finditer(r"(<(script|style)\b[^>]*>)(.*?)(</\2\s*>)", html, re.I | re.S):
@@ -683,6 +841,9 @@ class Masker:
         return "".join(out)
 
     def _mask_inline_script(self, js: str) -> str:
+        # Mask "key": "value" pairs where the key identifies a person (covers inline
+        # state like window.__STATE__ = {"firstName":"...","hardship":"..."} without
+        # trying to brace-match whole objects, which backfires on real script code).
         def kv(m):
             nk = norm_key(m.group(2))
             if not is_strong_key(nk):
@@ -691,9 +852,10 @@ class Masker:
             if not isinstance(masked, str):
                 masked = self.fpe(m.group(5))
             return "%s%s%s%s%s%s%s" % (m.group(1), m.group(2), m.group(1), m.group(3), m.group(4), masked, m.group(4))
-        js = re.sub(r"(['\"]?)([A-Za-z_][A-Za-z0-9_]{1,60})\1(\s*:\s*)(['\"])((?:\\.|(?!\4).){0,500})\4", kv, js)
+        js = re.sub(r"(['\"]?)([A-Za-z_][A-Za-z0-9_]{1,60})\1(\s*:\s*)(['\"])((?:\\.|(?!\4).){0,4000})\4", kv, js)
         js = PAT_EMAIL.sub(lambda m: self.email(m.group(0)), js)
         js = PAT_SSN_DASHED.sub(self.ssn, js)
+        js = PAT_CARD.sub(lambda m: self.fpe(m.group(0)) if luhn_ok(re.sub(r"\D", "", m.group(0))) else m.group(0), js)
         return js
 
     def _mask_tag(self, tag: str) -> str:
@@ -721,14 +883,17 @@ class Masker:
                     return put(self.fpe(val))
                 if ttype == "password":
                     return put("")
-                return put(self.mask_url(val))
+                # Hidden (and other) inputs can carry JSON or PII: unescape, then mask.
+                return put(self._mask_attr_payload(val))
             if al == "href" and re.match(r"\s*(mailto|tel|sms|callto):", val, re.I):
                 return put("#parity-masked")
             if al in ("href", "src", "action", "formaction", "srcset", "poster"):
                 return put(self.mask_url(val))
             if al in ("title", "alt", "aria-label", "aria-description", "aria-valuetext", "label"):
                 return put(self.mask_patterns(self.mask_names(val)))
-            if al in ("placeholder", "value", "content") or al.startswith(("aria-", "data-")):
+            if al.startswith("data-") or al == "value":
+                return put(self._mask_attr_payload(val))
+            if al in ("placeholder", "content") or al.startswith("aria-"):
                 return put(self.mask_patterns(val))
             return m.group(0)
 
@@ -738,14 +903,38 @@ class Masker:
     NAME_TAGS = ("title", "h1", "h2", "h3", "h4", "h5", "h6")
     CHROME_TAGS = ("button", "th", "label", "option", "select", "legend", "caption")
 
+    def _mask_attr_payload(self, val: str) -> str:
+        """An attribute value that may hold JSON or PII (hidden input, data-*)."""
+        import html as _html
+        raw = _html.unescape(val)
+        s = raw.strip()
+        if s[:1] in ("{", "[") and s[-1:] in ("}", "]"):
+            try:
+                obj = json.loads(s)
+                self._collect(obj)
+                return _html.escape(json.dumps(self.mask_json(obj), separators=(",", ":")), quote=False)
+            except ValueError:
+                pass
+        return self.mask_patterns(self.mask_names(val))
+
     def _mask_cell_text(self, text: str) -> str:
-        """Record text in a cell: every word masked except interface words."""
-        def word(m):
-            w = m.group(0)
-            return w if ACTION_WORDS.match(w) else self.fpe(w)
+        """Record text in a cell: mask words, but keep amounts, dates, counts and
+        short status words so the parity work can still read a row."""
         if text.strip().endswith(":"):
             return self.mask_patterns(text)
-        return re.sub(r"\S+", word, self.apply_known(text))
+        text = self.apply_known(text)
+
+        def word(m):
+            w = m.group(0)
+            if ACTION_WORDS.match(w) or _is_keepable_cell(w):
+                return w
+            return self.fpe(w)
+        return re.sub(r"\S+", word, text)
+
+    # Tags that end a data/chrome region, so an unclosed <td> or <option> can't
+    # bleed masking across the rest of the page.
+    _RESET = {"tr": ("td",), "table": ("td",), "dl": ("dd",), "select": ("option",), "ul": ("option",),
+              "ol": ("option",)}
 
     def _mask_markup(self, html: str) -> str:
         depth = {t: 0 for t in self.DATA_TAGS + self.NAME_TAGS + self.CHROME_TAGS}
@@ -753,9 +942,15 @@ class Masker:
         for p in re.split(r"(<[^>]*>)", html):
             if p.startswith("<"):
                 m = re.match(r"<\s*(/?)\s*([A-Za-z][A-Za-z0-9]*)", p)
-                if m and m.group(2).lower() in depth and not p.rstrip().endswith("/>"):
-                    tag = m.group(2).lower()
-                    depth[tag] = max(0, depth[tag] + (-1 if m.group(1) else 1))
+                if m:
+                    tag, closing = m.group(2).lower(), bool(m.group(1))
+                    if tag in depth and not p.rstrip().endswith("/>"):
+                        depth[tag] = max(0, depth[tag] + (-1 if closing else 1))
+                    # Opening or closing a row/table/list resets cell/option depth.
+                    for container, inners in self._RESET.items():
+                        if tag == container:
+                            for it in inners:
+                                depth[it] = 0
                 out.append(self._mask_tag(p))
             elif not p.strip():
                 out.append(p)
@@ -763,10 +958,10 @@ class Masker:
                 out.append(self.mask_patterns(p))
             elif any(depth[t] for t in self.DATA_TAGS):
                 out.append(self._mask_cell_text(p))
-            elif any(depth[t] for t in self.NAME_TAGS):
-                out.append(self.mask_patterns(self.mask_names(p)))
             else:
-                out.append(self.mask_patterns(p))
+                # Headings and ordinary body text (nav links, list items, spans):
+                # mask patterns and possible person names.
+                out.append(self.mask_patterns(self.mask_names(p)))
         return "".join(out)
 
 

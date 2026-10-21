@@ -21,10 +21,9 @@
     Object.defineProperty(window, '__parityMask', { value: state, writable: false, configurable: false });
   } catch (e) { window.__parityMask = state; }
 
-  var done = new WeakMap();        // node -> last masked value we wrote
-  var produced = new Set();        // every masked value we wrote: never re-mask our own output
-  function remember(v) { if (produced.size > 20000) produced.clear(); produced.add(v); return v; }
-  var typed = new WeakSet();       // inputs a person (or the agent) typed into: keep their values
+  var done = new WeakMap();        // node (or document) -> the exact value we last wrote
+  var attrDone = new WeakMap();    // element -> { attrName: value we wrote } so our own writes don't re-trigger
+  var typedVal = new WeakMap();    // input element -> the value a person actually typed (kept, not masked)
   var ACTION_WORDS = /^(view|edit|open|details?|select|print|download|export|add|new|remove|delete|void|save|cancel|close|more|actions?|yes|no|n\/a|none|active|inactive|pending|paid|closed|true|false|ok|-|\u2014|\u2013|\d{1,3}%?)$/i;
   var VALUE_CLASS = /(^|[\s_-])(value|val|data|display|readonly|field-value|info-value|detail-value|record|cell-text)([\s_-]|$)/i;
   var TEXT_INPUT = /^(|text|email|tel|number|date|datetime-local|month|search|url|week|time)$/i;
@@ -34,15 +33,21 @@
   var UI_WORDS = new Set(__UI_WORDS__);
   var NAME_RUN = /\b([A-Z][a-z'\-]{1,30})((?:\s+[A-Z][a-z'\-]{1,30}){1,2})\b/g;
 
-  // Possible person names: runs of 2 or 3 Capitalized words that are not all
-  // interface words ("Client Details" stays, a first and last name is masked).
+  var NAME_CAPS = /\b[A-Z][A-Z'\-]{1,}(?:\s+[A-Z][A-Z'\-]{1,}){1,2}\b/g;
+  var NAME_COMMA = /\b([A-Z][\w'\-]+|[A-Z]{2,})\s*,\s*([A-Z][\w'\-]+|[A-Z]{2,})\b/g;
+  // A run of capitalized words with at least two non-interface words is a likely
+  // person name ("Jose Garcia" masks; "Payment Plans" and "Client Details" stay).
+  function nameRun(m) {
+    var words = m.split(/[\s,]+/), nonUi = 0;
+    for (var i = 0; i < words.length; i++) if (words[i] && !UI_WORDS.has(words[i].toLowerCase())) nonUi++;
+    return nonUi >= 2 ? fpe(m) : m;
+  }
   function maskNames(t) {
     if (!t) return t;
-    return t.replace(NAME_RUN, function (m) {
-      var words = m.split(/\s+/);
-      for (var i = 0; i < words.length; i++) if (!UI_WORDS.has(words[i].toLowerCase())) return fpe(m);
-      return m;
-    });
+    t = t.replace(NAME_COMMA, nameRun);
+    t = t.replace(NAME_RUN, nameRun);
+    t = t.replace(NAME_CAPS, nameRun);
+    return t;
   }
 
   function fail(e) {
@@ -113,13 +118,11 @@
 
   function maskText(node) {
     var v = node.nodeValue;
-    if (!v || done.get(node) === v) return;
-    if (produced.has(v)) { done.set(node, v); return; }
+    if (!v || done.get(node) === v) return;  // our own write, or already handled
     var out;
     if (isDataText(node)) out = v.replace(/\S+/g, function (w) { return ACTION_WORDS.test(w) ? w : fpe(w); });
-    else if (inside(node.parentElement, 'h1,h2,h3,h4,h5,h6,title,[role=heading]')) out = patterns(maskNames(v));
-    else out = patterns(v);
-    if (out !== v) { node.nodeValue = remember(out); state.masked++; }
+    else out = patterns(maskNames(v));
+    if (out !== v) { node.nodeValue = out; state.masked++; }
     done.set(node, node.nodeValue);
   }
 
@@ -127,26 +130,33 @@
   var areaDesc = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
 
   function maskInput(el) {
-    if (typed.has(el)) return;
     var isArea = el.tagName === 'TEXTAREA';
     if (!isArea && (!TEXT_INPUT.test(el.type || '') || el.type === 'password' || el.type === 'hidden')) return;
     var desc = isArea ? areaDesc : valueDesc;
     var v = desc.get.call(el);
-    if (!v || done.get(el) === v || produced.has(v)) return;
-    var out = remember(fpe(v));
+    if (!v) return;
+    // Keep what a person typed, but only while it still equals what they typed:
+    // if the app later overwrites the field (a server re-render), mask again.
+    if (typedVal.get(el) === v) return;
+    if (done.get(el) === v) return;  // our own write
+    var out = fpe(v);
     desc.set.call(el, out);
     done.set(el, out);
     state.masked++;
   }
 
   function maskAttrs(el) {
+    if (!el.getAttribute) return;
+    var cache = attrDone.get(el) || {};
     for (var i = 0; i < ATTRS.length; i++) {
-      var a = el.getAttribute && el.getAttribute(ATTRS[i]);
-      if (a && !produced.has(a)) {
-        var m = NAME_ATTRS[ATTRS[i]] ? patterns(maskNames(a)) : patterns(a);
-        if (m !== a) el.setAttribute(ATTRS[i], remember(m));
-      }
+      var name = ATTRS[i];
+      var a = el.getAttribute(name);
+      if (a == null || cache[name] === a) continue;  // absent, or our own write
+      var m = NAME_ATTRS[name] ? patterns(maskNames(a)) : patterns(a);
+      if (m !== a) { el.setAttribute(name, m); cache[name] = m; state.masked++; }
+      else cache[name] = a;
     }
+    attrDone.set(el, cache);
     if (el.tagName === 'A') {
       var href = el.getAttribute('href') || '';
       if (/^\s*(mailto|tel|sms|callto):/i.test(href)) el.setAttribute('href', '#parity-masked');
@@ -157,7 +167,8 @@
     if (!root) return;
     if (root.nodeType === 3) { maskText(root); return; }
     if (root.nodeType !== 1 && root.nodeType !== 9 && root.nodeType !== 11) return;
-    var tw = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+    var owner = (root.ownerDocument || root);
+    var tw = owner.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
     var n = root.nodeType === 1 ? root : tw.nextNode();
     while (n) {
       if (n.nodeType === 3) maskText(n);
@@ -166,9 +177,23 @@
         maskAttrs(n);
         if (n.tagName === 'INPUT' || n.tagName === 'TEXTAREA') maskInput(n);
         if (n.shadowRoot && !done.has(n.shadowRoot)) { done.set(n.shadowRoot, 1); observe(n.shadowRoot); walk(n.shadowRoot); }
+        if ((n.tagName === 'IFRAME' || n.tagName === 'FRAME')) hookFrame(n);
       }
       n = tw.nextNode();
     }
+  }
+
+  function hookFrame(fr) {
+    if (fr.__parityFrame) return;        // hook each iframe element once
+    fr.__parityFrame = 1;
+    function scan() {
+      try {
+        var doc = fr.contentDocument;    // same-origin only; throws for cross-origin
+        if (doc && doc.documentElement && !done.has(doc)) { done.set(doc, 1); observe(doc); walk(doc.documentElement); }
+      } catch (e) { /* cross-origin: the proxy masks it on its own origin */ }
+    }
+    scan();
+    fr.addEventListener('load', scan);
   }
 
   function nextUp(tw) {
@@ -179,13 +204,17 @@
   function maskTitle() {
     var t = document.title;
     if (!t || done.get(document) === t) return;
-    if (produced.has(t)) { done.set(document, t); return; }
     var out = patterns(maskNames(t));
-    if (out !== t) document.title = remember(out);
+    if (out !== t) document.title = out;
     done.set(document, document.title);
   }
 
-  function handle(muts) {
+  function sweep() {
+    // A full re-pass, callable from shield_check.js before a capture.
+    try { walk(document.documentElement); maskTitle(); return true; } catch (e) { fail(e); return false; }
+  }
+
+  function handle(muts, obs) {
     try {
       for (var i = 0; i < muts.length; i++) {
         var m = muts[i];
@@ -194,6 +223,10 @@
         else for (var j = 0; j < m.addedNodes.length; j++) walk(m.addedNodes[j]);
       }
       maskTitle();
+      // Discard the records our own masking just generated, so they can't call us
+      // back in an endless microtask loop. Genuine later changes are still caught
+      // by subtree observation and the periodic sweep.
+      if (obs && obs.takeRecords) obs.takeRecords();
       if (state.state === 'starting') state.state = state.errors ? 'error' : 'on';
     } catch (e) { fail(e); }
   }
@@ -206,16 +239,31 @@
   }
 
   function markTyped(e) {
-    if (e.isTrusted && e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) typed.add(e.target);
+    var t = e.target;
+    if (e.isTrusted && t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) {
+      // Remember what the person typed on the next tick (after the value updates),
+      // so maskInput keeps exactly that and masks anything the app sets later.
+      setTimeout(function () { try { typedVal.set(t, t.value); done.set(t, t.value); } catch (e2) { /* detached */ } }, 0);
+    }
   }
 
   try {
-    ['keydown', 'paste', 'drop'].forEach(function (t) { document.addEventListener(t, markTyped, true); });
+    // Mask inside shadow roots created after the first pass (web components).
+    if (window.Element && Element.prototype.attachShadow) {
+      var realAttach = Element.prototype.attachShadow;
+      Element.prototype.attachShadow = function (init) {
+        var r = realAttach.call(this, init);
+        try { if (r && r.mode !== 'closed') { observe(r); setTimeout(function () { try { walk(r); } catch (e) { fail(e); } }, 0); } } catch (e) { fail(e); }
+        return r;
+      };
+    }
+    try { state.sweep = sweep; } catch (e) { /* frozen */ }
+    ['keydown', 'paste', 'drop', 'input'].forEach(function (t) { document.addEventListener(t, markTyped, true); });
     observe(document);
     walk(document.documentElement);
     maskTitle();
     state.state = state.errors ? 'error' : 'on';
-    document.addEventListener('DOMContentLoaded', function () { try { walk(document.documentElement); maskTitle(); } catch (e) { fail(e); } });
+    document.addEventListener('DOMContentLoaded', function () { sweep(); });
     setInterval(function () {
       try {
         var els = document.querySelectorAll('input,textarea');

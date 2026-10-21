@@ -94,7 +94,7 @@ class Shield:
         self.started = _now_iso()
         self.fatal: str | None = None
         self.cfg: dict = {}
-        self.masker = core.Masker()
+        self.masker = core.Masker(extra_keys=(cfg.get("mask") or {}).get("extra_keys"))
         self.dom_salt = secrets.token_hex(16)  # independent of the proxy key
         self.counts = {"allowed": 0, "blocked": 0, "masked": 0, "withheld": 0, "errors": 0}
         self.recent: dict = {}
@@ -182,6 +182,16 @@ class Shield:
             if not d.allow:
                 self._block(flow, d.reason, d.kind)
                 self._record_block(flow, d.kind, d.reason)
+                return
+            if d.kind == "preflight":
+                # Answer the CORS preflight ourselves; never forward an OPTIONS.
+                origin = flow.request.headers.get("origin", "*")
+                reqh = flow.request.headers.get("access-control-request-headers", "")
+                flow.response = http.Response.make(204, b"", {
+                    "Access-Control-Allow-Origin": origin, "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+                    "Access-Control-Allow-Headers": reqh or "*", "Access-Control-Allow-Credentials": "true",
+                    "Access-Control-Max-Age": "600", "X-Parity-Shield": "preflight", "Cache-Control": "no-store"})
+                flow.metadata["shield_served"] = True
                 return
             await self._pace(flow)
             flow.response = None
@@ -425,22 +435,31 @@ class Shield:
                 r"(filename\*?=)(\"?)([^\";]*)\2", lambda m: m.group(1) + m.group(2) + self.masker.fpe(m.group(3)) + m.group(2),
                 new_headers["content-disposition"])
 
+        has_query = bool(flow.request.query)
+        static_asset = is_static and core.STATIC_EXT.search(path) and not has_query
         if kind in ("js", "code"):
-            if kind == "js" and not (core.CODE_EXT.search(path) or is_static):
-                text = self._decode_text(body, ctype)
-                masked = self.masker._mask_inline_script(text)
-                return status, self._utf8(new_headers), masked.encode("utf-8")
-            return passthrough()
+            # A .js under a static path with no query is a bundle: pass through. A
+            # dynamically-generated .js (query, or not on a static path) may carry
+            # record data, so mask it like inline script.
+            if kind == "code" and static_asset:
+                return passthrough()
+            if kind == "js" and static_asset:
+                return passthrough()
+            text = self._decode_text(body, ctype)
+            masked = self.masker._mask_inline_script(text)
+            return status, self._utf8(new_headers), masked.encode("utf-8")
         if kind == "empty":
             return status, new_headers, b""
         if kind == "image":
-            if is_static:
+            if static_asset:
                 return passthrough()
             self.counts["withheld"] += 1
             return 403, http.Headers(**{"Content-Type": "text/plain", "X-Parity-Shield": "withheld-image",
                                         "Cache-Control": "no-store"}), b"image withheld by parity shield"
         if kind in ("binary", "sse"):
-            if is_static and kind == "binary":
+            # Binary is withheld even on a static path unless it is a known safe asset
+            # type (font/image). A PDF under /assets/ is never passed through.
+            if kind == "binary" and static_asset:
                 return passthrough()
             self.counts["withheld"] += 1
             return 403, http.Headers(**{"Content-Type": "text/plain", "X-Parity-Shield": "withheld-%s" % kind,

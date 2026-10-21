@@ -6,6 +6,7 @@ every session on the live system.
 
 ## Contents
 
+0. What this does and does not guarantee (read first)
 1. The layers, and what each one guarantees
 2. One-time setup (with the owner, each change shown first)
 3. Every session
@@ -13,6 +14,24 @@ every session on the live system.
 5. Learning behavior without making changes
 6. Residual risks to tell the owner
 7. Troubleshooting
+
+## 0. What this does and does not guarantee (read first)
+
+The shield is defense in depth, not a cage. Its job is to make an **accidental** change or data
+exposure essentially impossible during normal agent use, and to keep client identifiers off the
+model. It does that well: the proxy blocks every write and masks responses, the in-page mask covers
+what only the rendered page reveals, and the guard keeps the agent inside the shielded browser. But a
+local proxy plus an editor-side hook cannot fully contain a **determined** local process. So the
+guarantee that nothing changes in the live system does not rest on the shield alone. It rests on:
+
+- the **view-only assistant user** (the system itself refuses writes, server side),
+- the **owner running the controls** (login windows, pins, start and stop are owner-only), and
+- **supervised sessions** for anything sensitive.
+
+Use all three together. If the system has no roles and cannot make a view-only user, tell the owner
+plainly that the shield reduces but does not eliminate the risk, and keep every session supervised.
+Masking is best effort, not a promise: say so, which is why the owner's compliance setup must allow
+masked capture in the first place.
 
 ## 1. The layers
 

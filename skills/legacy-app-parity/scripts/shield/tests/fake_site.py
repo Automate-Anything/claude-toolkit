@@ -23,7 +23,11 @@ CLIENTS = {
 
 APP = """<!doctype html><html><head><meta charset="utf-8"><title>Client Zebulon Quartermaine - CRM Test</title></head>
 <body>
+<!-- note for Zebulon Quartermaine, SSN 123-45-6789 -->
 <h1>Client details</h1>
+<nav><a href="/clients/1">Zebulon Quartermaine</a> | <a href="/clients">Client List</a></nav>
+<ul><li><a href="/clients/2">Ophelia Vandersnoot</a></li></ul>
+<div class="hdr"><span>QUARTERMAINE, ZEBULON</span></div>
 <table><thead><tr><th>Client Name</th><th>SSN</th><th>Status</th></tr></thead>
 <tbody><tr><td>Ophelia Vandersnoot</td><td>123-45-6789</td><td>Active</td></tr></tbody></table>
 <dl><dt>Email</dt><dd>zebulon.q@canary-mail.com</dd><dt>Phone</dt><dd>(646) 231-7788</dd></dl>
@@ -32,6 +36,7 @@ APP = """<!doctype html><html><head><meta charset="utf-8"><title>Client Zebulon 
 <a id="ml" href="mailto:zebulon.q@canary-mail.com">Email client</a>
 <span aria-label="Ophelia Vandersnoot profile">P</span>
 <button type="button">Save</button>
+<input type="hidden" name="payload" value='{"spouse":"Ophelia Vandersnoot","ssn":"123-45-6789"}'>
 <div id="list"></div><pre id="results"></pre>
 <form id="f" method="post" action="/api/form" target="fr"><input name="custname" value="Zebulon">
 <input type="password" name="password" value="%(cred)s"></form>

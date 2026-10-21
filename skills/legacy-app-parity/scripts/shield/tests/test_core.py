@@ -89,16 +89,44 @@ class Decisions(unittest.TestCase):
 
     def test_login_window_scoped_and_expiring(self):
         win = core.LoginWindow("app.crm.test", 2000.0)
-        self.assertTrue(d(req("POST", "/login", body=40), win).allow)
-        self.assertTrue(d(req("POST", "/u/start", body=40), win).allow)  # exact login rule
+        # This host has a pinned login rule (/u/start), so ONLY that path is allowed.
+        self.assertTrue(d(req("POST", "/u/start", body=40), win).allow)
+        self.assertFalse(d(req("POST", "/login", body=40), win).allow)  # not a pinned login path for this host
         self.assertFalse(d(req("POST", "/api/clients/save", body=40), win).allow)
-        self.assertFalse(d(req("POST", "/clients/1/verify-bank", body=40), win).allow)
+        self.assertFalse(d(req("POST", "/clients/1/verify", body=40), win).allow)
         self.assertFalse(d(req("POST", "/login", body=40, host="evil.crm.test"), win).allow)
-        self.assertFalse(d(req("POST", "/login", body=40), win, now=2500.0).allow)
+        self.assertFalse(d(req("POST", "/u/start", body=40), win, now=2500.0).allow)
         self.assertFalse(d(req("POST", "/u/start", body=40)).allow)  # login rules only inside a window
+
+    def test_login_window_generic_before_pinning(self):
+        # A host with NO pinned login rules: tight auth paths are allowed during the window.
+        cfg = dict(CFG, login_rules=[])
+        win = core.LoginWindow("app.crm.test", 2000.0)
+        self.assertTrue(core.decide(req("POST", "/login", body=40), cfg, 1000.0, win, today=TODAY).allow)
+        self.assertTrue(core.decide(req("POST", "/auth/token", body=40), cfg, 1000.0, win, today=TODAY).allow)
+        # but not deep per-record paths that merely end in an auth-ish word
+        self.assertFalse(core.decide(req("POST", "/clients/5/verify", body=40), cfg, 1000.0, win, today=TODAY).allow)
+        self.assertFalse(core.decide(req("POST", "/bank/5/token", body=40), cfg, 1000.0, win, today=TODAY).allow)
+        self.assertFalse(core.decide(req("POST", "/login", query="next=1", body=40), cfg, 1000.0, win, today=TODAY).allow)
+
+    def test_exact_rules_check_query(self):
+        # allow_get is exact on the query too
+        self.assertTrue(d(req("GET", "/reports/print-preview")).allow)
+        self.assertFalse(d(req("GET", "/reports/print-preview", "send=1")).allow)
+        # pinned write with a danger query is not covered by a bare-path pin
+        self.assertFalse(d(req("POST", "/api/keepalive", "op=deleteClient", body=10)).allow)
 
     def test_graphql_blocked(self):
         self.assertFalse(d(req("POST", "/graphql", body=50)).allow)
+
+    def test_options_not_forwarded_with_query(self):
+        self.assertFalse(d(req("OPTIONS", "/ajax.php", "action=deleteClient",
+                               headers={"origin": "https://a", "access-control-request-method": "POST"})).allow)
+
+    def test_danger_stemming_and_joined_words(self):
+        for p in ("/clients/deleting/1", "/approving", "/cancelling/5", "/clientdelete.aspx",
+                  "/voidpayment.aspx", "/sendemail.php", "/DELETECLIENT", "/esign/5/resend"):
+            self.assertFalse(d(req("GET", p)).allow, p)
 
 
 class ConfigValidation(unittest.TestCase):
@@ -154,7 +182,8 @@ class Masking(unittest.TestCase):
         self.assertNotIn("021000021", self.m.mask_patterns("routing 021000021"))  # valid ABA
         # Any bare 9-digit number may be an SSN, so it is masked even when it is just an order number.
         self.assertNotIn("123456780", self.m.mask_patterns("order 123456780 ref"))
-        self.assertIn("1234567812345678", self.m.mask_patterns("id 1234567812345678"))  # fails Luhn: kept
+        # A 16-digit run is masked whether or not it passes Luhn (account-number protection).
+        self.assertNotIn("1234567812345678", self.m.mask_patterns("id 1234567812345678"))
 
     def test_json_identifiers(self):
         rec = {"id": 17, "clientId": "C-00017", "firstName": "Zebulon", "lastName": "Quartermaine", "ssn": "123-45-6789",
@@ -246,6 +275,78 @@ class Masking(unittest.TestCase):
             self.assertNotIn(canary, out, canary)
         for kept in ("Client Details", "Client Name", ">View<", ">Active<", "href='/c/4'", "Employer"):
             self.assertIn(kept, out, kept)
+
+    def test_names_in_nav_list_span(self):
+        html = ("<html><body><nav><a href='/c/1'>Zebulon Quartermaine</a></nav>"
+                "<ul><li><a href='/c/2'>Ophelia Vandersnoot</a></li></ul>"
+                "<div class='hdr'><span>QUARTERMAINE, ZEBULON</span></div>"
+                "<div class='note-body'>Client Jose Garcia called about his loan</div></body></html>")
+        out = self.m.mask_html(html)
+        for canary in ("Zebulon", "Quartermaine", "Ophelia", "Vandersnoot", "QUARTERMAINE", "Jose Garcia"):
+            self.assertNotIn(canary, out, canary)
+        self.assertIn("href='/c/1'", out)
+
+    def test_allcaps_and_comma_names(self):
+        self.assertNotIn("SMITH", self.m.mask_names("SMITH, JOHN Q"))
+        self.assertNotIn("Garcia", self.m.mask_names("Garcia, Maria"))
+        self.assertEqual(self.m.mask_names("CLIENT DETAILS"), "CLIENT DETAILS")
+
+    def test_hidden_input_and_comment(self):
+        html = ('<html><body><!-- SSN 123-45-6789 for Zebulon -->'
+                '<input type="hidden" name="payload" value="{&quot;firstName&quot;:&quot;Zebulon&quot;}">'
+                '<input type="hidden" name="ssn" value="123-45-6789"></body></html>')
+        out = self.m.mask_html(html)
+        for c in ("123-45-6789", "Zebulon"):
+            self.assertNotIn(c, out, c)
+
+    def test_inline_state_and_long_note(self):
+        note = "Zebulon " * 200
+        js = '<script>window.__STATE__ = {"firstName":"Zebulon","hardship":"%s","status":"Enrolled"};</script>' % note
+        out = self.m.mask_html("<html><head></head><body>" + js + "</body></html>")
+        self.assertNotIn("Zebulon", out)
+        self.assertIn('"status":"Enrolled"', out)
+
+    def test_id_key_holding_pii(self):
+        out = self.m.mask_json({"emailId": "zeb@q.com", "taxpayerId": "123-45-6789", "clientId": 17, "accountId": "ACC-9"})
+        blob = json.dumps(out)
+        self.assertNotIn("zeb@q.com", blob)
+        self.assertNotIn("123-45-6789", blob)
+        self.assertEqual(out["clientId"], 17)       # plain id kept
+        self.assertEqual(out["accountId"], "ACC-9")  # prefix+digits id kept
+
+    def test_nested_ids_kept_under_strong_key(self):
+        out = self.m.mask_json({"bankAccounts": [{"id": 77, "accountNumber": "000123456789", "bankName": "First Bank"}]})
+        self.assertEqual(out["bankAccounts"][0]["id"], 77)
+        self.assertNotIn("000123456789", json.dumps(out))
+        self.assertNotIn("First Bank", json.dumps(out))
+
+    def test_over_masking_keeps_statuses_amounts_dates(self):
+        rows = {"data": [["Zebulon Q", "$1,520.55", "01/02/2024", "Enrolled", "45%"]]}
+        out = self.m.mask_json(rows)
+        self.assertNotIn("Zebulon", json.dumps(out))
+        self.assertEqual(out["data"][0][1], "$1,520.55")
+        self.assertEqual(out["data"][0][2], "01/02/2024")
+        self.assertEqual(out["data"][0][3], "Enrolled")
+        self.assertEqual(out["data"][0][4], "45%")
+
+    def test_table_cell_keeps_status_masks_name(self):
+        html = "<table><tr><td>Zebulon Quartermaine</td><td>Enrolled</td><td>$1,520.55</td></tr></table>"
+        out = self.m.mask_html(html)
+        self.assertNotIn("Zebulon", out)
+        self.assertIn(">Enrolled<", out)
+        self.assertIn("$1,520.55", out)
+
+    def test_partial_ssn_ein_labeled(self):
+        self.assertNotIn("6789", self.m.mask_patterns("XXX-XX-6789"))
+        self.assertNotIn("12-3456789", self.m.mask_patterns("EIN 12-3456789"))
+        self.assertNotIn("1980", self.m.mask_patterns("DOB: 02/03/1980"))
+
+    def test_unclosed_td_does_not_bleed(self):
+        html = "<table><tr><td>Zebulon Q<td>Enrolled</tr></table><h1>Client Details</h1><p>Welcome back</p>"
+        out = self.m.mask_html(html)
+        self.assertNotIn("Zebulon", out)
+        self.assertIn("Client Details", out)
+        self.assertIn("Welcome back", out)
 
     def test_csv_and_xml(self):
         csv = "Name,SSN\nZebulon Q,123-45-6789\n"

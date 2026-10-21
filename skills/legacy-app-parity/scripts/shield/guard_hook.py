@@ -33,9 +33,13 @@ NEVER_ON_SHIELDED = {"get_network_request", "take_memory_snapshot", "performance
                      "performance_analyze_insight", "lighthouse_audit", "upload_file", "take_heap_snapshot",
                      "screencast_start", "screencast_stop"}
 VETTED_SCRIPTS = ("inventory.js", "tokens.js", "ready.js")
-FORBIDDEN_IN_SNIPPETS = re.compile(r"fetch\s*\(|XMLHttpRequest|document\.cookie|sessionStorage|indexedDB|postMessage|"
-                                   r"sendBeacon|WebSocket|import\s*\(|innerHTML\s*=|\.value\s*=|\.submit\s*\(|"
-                                   r"\.click\s*\(|dispatchEvent|__STATE__|__INITIAL|__NEXT_DATA__|__NUXT__")
+FORBIDDEN_IN_SNIPPETS = re.compile(
+    r"fetch\b|XMLHttpRequest|xmlhttp|\.open\s*\(|document\.cookie|cookieStore|sessionStorage|localStorage|indexedDB|"
+    r"postMessage|sendBeacon|WebSocket|EventSource|import\s*\(|require\s*\(|innerHTML|outerHTML|insertAdjacent|"
+    r"\.value\s*=|\[['\"]value['\"]\]\s*=|\.submit\s*\(|requestSubmit|\.click\s*\(|dispatchEvent|\.focus\s*\(|"
+    r"__STATE__|__INITIAL|__NEXT_DATA__|__NUXT__|__APOLLO|window\s*\[|globalThis\s*\[|eval\s*\(|Function\s*\(|"
+    r"navigator\.|location\s*=|location\.(href|assign|replace)|\.href\s*=|credentials",
+    re.I)
 CACHE_RUNNER = re.compile(r"^async\s*\(\)\s*=>\s*\{\s*const s = localStorage\.getItem\('__lapInventory'\)")
 
 
@@ -90,40 +94,64 @@ def main() -> None:
     try:
         event = json.load(sys.stdin)
     except ValueError:
-        sys.exit(0)
+        sys.exit(0)  # not a hook event we understand; let the harness decide
     tool = event.get("tool_name", "") or ""
     tin = event.get("tool_input", {}) or {}
+    is_browser_or_mcp = tool.startswith("mcp__")
     try:
         with open(a.config, encoding="utf-8") as f:
-            targets = json.load(f).get("targets", [])
+            cfg = json.load(f)
+        targets = cfg.get("targets", [])
+        if not isinstance(targets, list) or not all(isinstance(t, str) for t in targets):
+            raise ValueError("bad targets")
     except (OSError, ValueError):
+        # Fail closed: without a readable target list we cannot tell live-system
+        # traffic apart, so block anything that could reach it.
+        if is_browser_or_mcp:
+            block("the shield config could not be read; refusing browser/MCP tools until it is fixed.")
         targets = []
     shielded_prefix = "mcp__%s__" % a.shielded_server
+
+    def names_target(text: str) -> bool:
+        for host in re.findall(r"https?://([^/\s'\"\\)]+)", text or ""):
+            host = host.split("@")[-1].split(":")[0]
+            if any(host_matches(host, t) for t in targets):
+                return True
+        return False
 
     # 3. Shell and file rules
     if tool == "Bash":
         cmd = tin.get("command", "")
-        if re.search(r"shieldctl(\.py)?\s+(login|pin|pin-login|wipe|stop)\b", cmd):
-            block("that shieldctl command is for the owner, in their own terminal. Ask them to run it.")
+        if re.search(r"shieldctl(\.py)?\s+(login|pin|pin-login|wipe|stop|start)\b", cmd):
+            block("shieldctl start/login/pin/stop/wipe are for the owner, in their own terminal. Ask them to run it.")
         if re.search(r"\bmitm(dump|proxy|web)\b", cmd):
             block("do not start mitmproxy yourself; the shield is started with shieldctl.py start.")
+        # No direct HTTP to the live system or to the browser's debug port, which
+        # would skip the proxy. (Reads of the live system go through the shielded browser.)
+        if re.search(r"\b(curl|wget|http|https|nc|ncat|python[0-9.]*\s|node\s)", cmd) and (names_target(cmd) or re.search(r"127\.0\.0\.1:(9333|9222)|localhost:(9333|9222)", cmd)):
+            block("do not reach the live system or the browser debug port from the shell; use the shielded browser.")
+        # No shell edits to the shield's config or control files.
+        if re.search(r"(>>?|tee|sed|cp|mv|dd|cat\s)\s", cmd) and re.search(r"shield\.json|\.parity-shield|control\.json", cmd):
+            block("the shield's config and control files are changed only by the owner.")
         sys.exit(0)
     if tool in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
-        path = os.path.abspath(os.path.expanduser(tin.get("file_path", "") or tin.get("notebook_path", "")))
-        if (os.path.basename(path) == "shield.json" or path.startswith(SHIELD_HOME + os.sep)
-                or path.startswith(HERE + os.sep)):
-            block("the shield's config, control files and code are changed only by the owner.")
+        path = os.path.realpath(os.path.expanduser(tin.get("file_path", "") or tin.get("notebook_path", "")))
+        base = os.path.basename(path).lower()
+        scripts_dir = os.path.dirname(HERE)  # the skill's scripts/ folder (vetted .js live one level up)
+        if (base in ("shield.json", "control.json") or path.startswith(os.path.realpath(SHIELD_HOME) + os.sep)
+                or path.startswith(os.path.realpath(HERE) + os.sep)
+                or (path.startswith(os.path.realpath(scripts_dir) + os.sep) and base in ("inventory.js", "tokens.js", "ready.js"))):
+            block("the shield's config, control files, code and vetted scripts are changed only by the owner.")
         sys.exit(0)
-    if not tool.startswith("mcp__"):
+    if tool == "WebFetch" and names_target(json.dumps(tin)):
+        block("do not fetch the live system directly; read it through the shielded browser.")
+    if not is_browser_or_mcp:
         sys.exit(0)
 
     short = tool.rsplit("__", 1)[-1]
-    # 1. Live-system hosts only through the shielded browser
-    url = tin.get("url") or tin.get("uri") or ""
-    if short in NAV_TOOLS and url and targets and not tool.startswith(shielded_prefix):
-        host = urlsplit(url).hostname or ""
-        if any(host_matches(host, t) for t in targets):
-            block("%s is the live system: open it only with the %s browser tools." % (host, a.shielded_server))
+    # 1. Live-system hosts only through the shielded browser (any tool input, not just a url field)
+    if not tool.startswith(shielded_prefix) and names_target(json.dumps(tin)):
+        block("that names the live system: reach it only with the %s browser tools." % a.shielded_server)
     if not tool.startswith(shielded_prefix):
         sys.exit(0)
 
@@ -134,13 +162,14 @@ def main() -> None:
         block("the shield is not running (or not this run). Ask the owner to start it: shieldctl.py start.")
     if short == "evaluate_script":
         fn = norm(tin.get("function", ""))
-        if fn in vetted_texts() or CACHE_RUNNER.match(fn):
+        vetted = vetted_texts()
+        if fn in vetted or CACHE_RUNNER.match(fn):
             sys.exit(0)
         if fn.startswith("async () => { const fn = ") and "localStorage.setItem('__lapInventory'" in fn:
             inner = fn[len("async () => { const fn = "):fn.rfind("; localStorage.setItem")]
-            if inner in vetted_texts():
+            if inner in vetted:
                 sys.exit(0)
-        if len(fn) <= 400 and not FORBIDDEN_IN_SNIPPETS.search(fn):
+        if len(fn) <= 400 and not FORBIDDEN_IN_SNIPPETS.search(fn) and not names_target(fn):
             sys.exit(0)
         block("only the vetted scripts (inventory.js, tokens.js, ready.js, shield_check.js) or short read-only snippets may run on the live system.")
     sys.exit(0)
