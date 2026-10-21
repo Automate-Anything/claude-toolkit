@@ -153,6 +153,11 @@ stays, and whether a confirm dialog's default button is OK or Cancel. `evaluate_
 
 ### Network: the data model and the server actions
 
+On a live system behind the parity shield, do not use `get_network_request` (the guard blocks it):
+the shield's `traffic.jsonl`, `blocks.jsonl` and `dryrun/index.jsonl` replace it, and
+`net_schema.py --index <log_dir>/dryrun/index.jsonl` turns the dry runs into the write side of the data
+model. The steps below are for a sandbox.
+
 After each action on a screen:
 
 1. `list_network_requests` with `resourceTypes: ["document", "xhr", "fetch"]` (add `other` for odd

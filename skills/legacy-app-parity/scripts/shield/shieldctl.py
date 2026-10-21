@@ -421,7 +421,7 @@ def cmd_selftest(a) -> None:
 def cmd_mcp(a) -> None:
     info = read_run() or {"debug_port": 9333}
     print("Connect a separate browser-tool server to the shielded Chrome (show this to the owner before running it):")
-    print("  claude mcp add --scope project chrome-shielded -- npx -y chrome-devtools-mcp@latest --browserUrl http://127.0.0.1:%d" % info["debug_port"])
+    print("  claude mcp add --scope project chrome-shielded -- npx -y chrome-devtools-mcp@1.10.1 --browserUrl http://127.0.0.1:%d" % info["debug_port"])
     print("Then restart Claude Code. The agent must use only the chrome-shielded tools for the live system.")
 
 

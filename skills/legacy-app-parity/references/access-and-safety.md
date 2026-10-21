@@ -30,6 +30,11 @@ modules as the live account, and can the owner's custom fields and settings be c
 that lacks modules or custom fields must be compared against live menus (owner screenshots), with
 every difference listed.
 
+**No sandbox at all (common):** combine B with the parity shield described in `no-sandbox-mode.md`.
+The shield makes the browser itself read-only and masks client identifiers before the agent sees them,
+so even an account that can do everything cannot change anything. Use the view-only assistant user for
+normal mapping and the owner's admin login, behind the shield, only in supervised sessions.
+
 **B. A dedicated limited user on live (if there is no sandbox website).** Never the owner's own
 login. A role with: view on every screen; create and edit allowed; no delete, export, settings, user
 management, or sending email or texts. If the system has locations, branches or companies, scope the
