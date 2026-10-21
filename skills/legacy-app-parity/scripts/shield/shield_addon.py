@@ -387,7 +387,8 @@ class Shield:
         if r.method not in ("GET", "HEAD"):
             flow.response = http.Response.make(405, b"", hdr)
         elif path.endswith("/mask.js") and path.startswith(core.MAGIC_PREFIX):
-            js = (self.mask_js or "throw new Error('mask.js missing');").replace("__SALT__", self.dom_salt).replace("__RUN__", self.run_id)
+            js = ((self.mask_js or "throw new Error('mask.js missing');").replace("__SALT__", self.dom_salt)
+                  .replace("__RUN__", self.run_id).replace("__UI_WORDS__", json.dumps(sorted(core.UI_WORDS))))
             flow.response = http.Response.make(200, js.encode(), {**hdr, "Content-Type": "application/javascript; charset=utf-8"})
         elif path in ("/status", core.MAGIC_PREFIX + "status", "/"):
             body = json.dumps(self._status(), indent=1).encode()

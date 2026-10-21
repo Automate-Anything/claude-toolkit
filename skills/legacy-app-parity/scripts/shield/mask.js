@@ -22,11 +22,28 @@
   } catch (e) { window.__parityMask = state; }
 
   var done = new WeakMap();        // node -> last masked value we wrote
+  var produced = new Set();        // every masked value we wrote: never re-mask our own output
+  function remember(v) { if (produced.size > 20000) produced.clear(); produced.add(v); return v; }
   var typed = new WeakSet();       // inputs a person (or the agent) typed into: keep their values
-  var ACTION_WORDS = /^(view|edit|open|details?|select|print|download|export|add|new|remove|delete|void|save|cancel|close|more|actions?|yes|no|n\/a|none|active|inactive|pending|paid|closed|true|false|ok|-|—|–|\d{1,3}%?)$/i;
+  var ACTION_WORDS = /^(view|edit|open|details?|select|print|download|export|add|new|remove|delete|void|save|cancel|close|more|actions?|yes|no|n\/a|none|active|inactive|pending|paid|closed|true|false|ok|-|\u2014|\u2013|\d{1,3}%?)$/i;
   var VALUE_CLASS = /(^|[\s_-])(value|val|data|display|readonly|field-value|info-value|detail-value|record|cell-text)([\s_-]|$)/i;
   var TEXT_INPUT = /^(|text|email|tel|number|date|datetime-local|month|search|url|week|time)$/i;
   var ATTRS = ['title', 'alt', 'aria-label', 'aria-description', 'aria-valuetext', 'aria-placeholder', 'placeholder'];
+  var NAME_ATTRS = { 'title': 1, 'alt': 1, 'aria-label': 1, 'aria-description': 1, 'aria-valuetext': 1 };
+  // Interface words, filled in by the proxy from the same list it uses itself.
+  var UI_WORDS = new Set(__UI_WORDS__);
+  var NAME_RUN = /\b([A-Z][a-z'\-]{1,30})((?:\s+[A-Z][a-z'\-]{1,30}){1,2})\b/g;
+
+  // Possible person names: runs of 2 or 3 Capitalized words that are not all
+  // interface words ("Client Details" stays, a first and last name is masked).
+  function maskNames(t) {
+    if (!t) return t;
+    return t.replace(NAME_RUN, function (m) {
+      var words = m.split(/\s+/);
+      for (var i = 0; i < words.length; i++) if (!UI_WORDS.has(words[i].toLowerCase())) return fpe(m);
+      return m;
+    });
+  }
 
   function fail(e) {
     state.errors += 1;
@@ -97,8 +114,12 @@
   function maskText(node) {
     var v = node.nodeValue;
     if (!v || done.get(node) === v) return;
-    var out = isDataText(node) ? v.replace(/\S+/g, function (w) { return fpe(w); }) : patterns(v);
-    if (out !== v) { node.nodeValue = out; state.masked++; }
+    if (produced.has(v)) { done.set(node, v); return; }
+    var out;
+    if (isDataText(node)) out = v.replace(/\S+/g, function (w) { return ACTION_WORDS.test(w) ? w : fpe(w); });
+    else if (inside(node.parentElement, 'h1,h2,h3,h4,h5,h6,title,[role=heading]')) out = patterns(maskNames(v));
+    else out = patterns(v);
+    if (out !== v) { node.nodeValue = remember(out); state.masked++; }
     done.set(node, node.nodeValue);
   }
 
@@ -111,8 +132,8 @@
     if (!isArea && (!TEXT_INPUT.test(el.type || '') || el.type === 'password' || el.type === 'hidden')) return;
     var desc = isArea ? areaDesc : valueDesc;
     var v = desc.get.call(el);
-    if (!v || done.get(el) === v) return;
-    var out = fpe(v);
+    if (!v || done.get(el) === v || produced.has(v)) return;
+    var out = remember(fpe(v));
     desc.set.call(el, out);
     done.set(el, out);
     state.masked++;
@@ -121,7 +142,10 @@
   function maskAttrs(el) {
     for (var i = 0; i < ATTRS.length; i++) {
       var a = el.getAttribute && el.getAttribute(ATTRS[i]);
-      if (a) { var m = patterns(a); if (m !== a) el.setAttribute(ATTRS[i], m); }
+      if (a && !produced.has(a)) {
+        var m = NAME_ATTRS[ATTRS[i]] ? patterns(maskNames(a)) : patterns(a);
+        if (m !== a) el.setAttribute(ATTRS[i], remember(m));
+      }
     }
     if (el.tagName === 'A') {
       var href = el.getAttribute('href') || '';
@@ -155,8 +179,9 @@
   function maskTitle() {
     var t = document.title;
     if (!t || done.get(document) === t) return;
-    var out = patterns(t).replace(/\b([A-Z][a-z'\-]+)(\s+[A-Z][a-z'\-]+){1,2}\b/g, function (m) { return fpe(m); });
-    if (out !== t) document.title = out;
+    if (produced.has(t)) { done.set(document, t); return; }
+    var out = patterns(maskNames(t));
+    if (out !== t) document.title = remember(out);
     done.set(document, document.title);
   }
 

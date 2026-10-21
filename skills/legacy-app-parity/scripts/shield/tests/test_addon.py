@@ -143,6 +143,8 @@ class Requests(unittest.TestCase):
         self.s.requestheaders(f)
         self.assertIn(b"__parityMask", f.response.content)
         self.assertNotIn(b"__SALT__", f.response.content)
+        self.assertNotIn(b"__UI_WORDS__", f.response.content)
+        self.assertIn(b'"client"', f.response.content)
         f = flow("POST", host="parity-shield.invalid", path="/status", body=b"x")
         self.s.requestheaders(f)
         self.assertEqual(f.response.status_code, 405)

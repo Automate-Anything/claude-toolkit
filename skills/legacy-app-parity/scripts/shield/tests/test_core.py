@@ -221,6 +221,32 @@ class Masking(unittest.TestCase):
         self.assertIn('href="/clients/123456789"', out)  # record links keep their ids
         self.assertIn('"status":"Enrolled"', out)
 
+    def test_name_runs_vs_interface_phrases(self):
+        self.assertEqual(self.m.mask_names("Client Details"), "Client Details")
+        self.assertEqual(self.m.mask_names("Edit Client Profile"), "Edit Client Profile")
+        self.assertNotIn("Ophelia", self.m.mask_names("Ophelia Vandersnoot profile"))
+        self.assertTrue(self.m.mask_names("Ophelia Vandersnoot profile").endswith(" profile"))
+
+    def test_learned_names_masked_everywhere(self):
+        self.m.mask_json_text(json.dumps({"client": {"firstName": "Zebulon", "lastName": "Quartermaine"}}))
+        self.assertNotIn("Quartermaine", self.m.mask_patterns("Payment received from Mr. Quartermaine"))
+        out = self.m.mask_json_text(json.dumps({"message": "Zebulon Quartermaine saved", "status": "ok"}))
+        self.assertNotIn("Zebulon", out)
+        self.assertIn('"status":"ok"', out)
+
+    def test_html_cells_titles_headings_aria(self):
+        html = ("<html><head><title>Client Ophelia Vandersnoot - CRM</title></head><body>"
+                "<h2>Ophelia Vandersnoot</h2><h3>Client Details</h3>"
+                "<table><tr><th>Client Name</th></tr><tr><td><a href='/c/4'>Ophelia Vandersnoot</a></td>"
+                "<td><button>View</button></td><td>Active</td></tr></table>"
+                "<dl><dt>Employer</dt><dd>Acme Roofing</dd></dl>"
+                "<span aria-label='Ophelia Vandersnoot profile'>P</span><p>Notes for Vandersnoot</p></body></html>")
+        out = self.m.mask_html(html)
+        for canary in ("Ophelia", "Vandersnoot", "Acme Roofing"):
+            self.assertNotIn(canary, out, canary)
+        for kept in ("Client Details", "Client Name", ">View<", ">Active<", "href='/c/4'", "Employer"):
+            self.assertIn(kept, out, kept)
+
     def test_csv_and_xml(self):
         csv = "Name,SSN\nZebulon Q,123-45-6789\n"
         out = self.m.mask_csv(csv)

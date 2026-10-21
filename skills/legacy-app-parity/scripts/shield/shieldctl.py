@@ -49,7 +49,8 @@ def home() -> str:
 
 
 def venv_python() -> str:
-    return os.path.join(home(), "venv", "bin", "python")
+    venv = os.environ.get("PARITY_SHIELD_VENV") or os.path.join(home(), "venv")
+    return os.path.join(os.path.expanduser(venv), "bin", "python")
 
 
 def die(msg: str, code: int = 1):
@@ -190,7 +191,9 @@ def chrome_flags(cfg: dict, profile: str, cache_dir: str, spki: str, headless: b
         "--disk-cache-dir=%s" % cache_dir,
         "--proxy-server=http://127.0.0.1:%d" % int(cfg.get("proxy_port", 8899)),
         "--proxy-bypass-list=<-loopback>",
-        "--host-resolver-rules=MAP * ~NOTFOUND",
+        # Chrome resolves no names itself (the proxy does), so anything that tried to
+        # skip the proxy fails. 127.0.0.1 is excluded so Chrome can reach the proxy.
+        "--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1",
         "--ignore-certificate-errors-spki-list=%s" % spki,
         "--disable-quic",
         "--remote-debugging-port=%d" % int(cfg.get("debug_port", 9333)),

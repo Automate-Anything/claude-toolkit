@@ -274,6 +274,11 @@ STRONG_KEYS = {
     "hardshipreason", "description", "age",
 }
 SHORT_AFFIX_KEYS = ("ssn", "dob", "zip")
+NAME_KEYS = {"alias", "nickname", "spouse", "coapplicant", "cosigner", "coborrower", "beneficiary", "reference",
+             "emergencycontact", "employer", "contact", "client", "customer", "debtor", "applicant"}
+ACTION_WORDS = re.compile(r"^(view|edit|open|details?|select|print|download|export|add|new|remove|delete|void|save|cancel|"
+                          r"close|more|actions?|yes|no|n/a|none|active|inactive|pending|paid|closed|true|false|ok|-|"
+                          r"\d{1,3}%?)$", re.I)
 # Keys ending in "name" are identifying (firstName, clientName) except these,
 # which name parts of the interface; masking them would scramble the labels
 # the parity work needs. A bare "name" is masked only inside person records.
@@ -323,6 +328,28 @@ PAT_JWT = re.compile(r"eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]
 PAT_B64 = re.compile(r"(?<![A-Za-z0-9+/=])[A-Za-z0-9+/]{200,}={0,2}")
 
 
+# Words that appear in interface phrases ("Client Details", "Edit Client"). A run
+# of 2 or 3 Capitalized words is treated as a possible person name unless every
+# word is in this list. Used for titles, headings and ARIA/alt/title text.
+UI_WORDS = set("""
+a about account accounts action actions active add address advanced agent agents agreement agreements all alert alerts
+amount amounts and app apply approval approvals archive assign assigned attachments audit back balance balances bank
+banking batch billing calendar call calls campaign campaigns cancel case cases change charges check client clients close
+collapse comment comments company compliance confirm contact contacts contract create credit creditor creditors current
+customer customers dashboard data date dates day debt debts default delete deposit deposits detail details dialog document
+documents download draft drafts edit email emails enroll enrolled enrollment enrollments event events expand export fee
+fees file files filter filters first forecast form forms full general group groups help history home import inbox info
+information insights invoice invoices last lead leads list log login logout main manage menu message messages more my
+name names negotiation negotiations new next note notes notification notifications of offer offers open options other
+overview owner page payment payments pending people personal phone portal preferences previous print profile program
+programs queue quick read record records refresh reminder reminders report reports reset review role roles save schedule
+scheduled search section select send service settings settle settlement settlements show sign signature sms sort status
+statement statements submit summary support system task tasks team template templates text the to today toggle tools
+total totals transaction transactions trigger triggers update upload user users view welcome workflow workflows your
+""".split())
+NAME_RUN = re.compile(r"\b([A-Z][a-z'\-]{1,30})((?:\s+[A-Z][a-z'\-]{1,30}){1,2})\b")
+
+
 def luhn_ok(digits: str) -> bool:
     total, alt = 0, False
     for ch in reversed(digits):
@@ -353,6 +380,46 @@ class Masker:
     def __init__(self, key: bytes | None = None, extra_keys: list[str] | None = None):
         self._key = key or os.urandom(32)
         self.extra_keys = {norm_key(k) for k in (extra_keys or [])}
+        # Identifiers seen in identifying positions this run (memory only, never
+        # written): masked again wherever they reappear (headings, messages...).
+        self._known: dict = {}
+        self._known_re = None
+
+    # ----- learned identifiers -----
+    def learn(self, value) -> None:
+        if not isinstance(value, str):
+            return
+        v = value.strip()
+        if len(v) < 3 or len(v) > 80 or re.search(r"[\d@/\\<>{}]", v) or len(v.split()) > 4:
+            return
+        if not re.search(r"[A-Za-z]{2}", v):
+            return
+        added = False
+        for item in [v] + [w for w in re.findall(r"[A-Za-z][A-Za-z'\-]{2,}", v) if w[0].isupper()]:
+            if item.lower() in UI_WORDS or item in self._known:
+                continue
+            self._known[item] = self.fpe(item)
+            added = True
+        if added:
+            self._known_re = None
+
+    def apply_known(self, text: str) -> str:
+        if not text or not self._known:
+            return text
+        if self._known_re is None:
+            alts = sorted(self._known, key=len, reverse=True)
+            self._known_re = re.compile(r"(?<![A-Za-z])(" + "|".join(re.escape(a) for a in alts) + r")(?![A-Za-z])")
+        return self._known_re.sub(lambda m: self._known[m.group(1)], text)
+
+    def mask_names(self, text: str) -> str:
+        """Possible person names (runs of Capitalized words not made of interface
+        words) plus anything learned. For titles, headings and ARIA text."""
+        def run(m):
+            words = (m.group(1) + m.group(2)).split()
+            if all(w.lower() in UI_WORDS for w in words):
+                return m.group(0)
+            return self.fpe(m.group(0))
+        return NAME_RUN.sub(run, self.apply_known(text))
 
     # ----- primitives -----
     def _stream(self, value: str):
@@ -424,6 +491,7 @@ class Masker:
             raw = re.sub(r"\D", "", m.group(0))
             return self.fpe(m.group(0)) if 13 <= len(raw) <= 19 and luhn_ok(raw) else m.group(0)
 
+        text = self.apply_known(text)
         text = PAT_JWT.sub("[masked-token]", text)
         text = PAT_B64.sub("[masked-blob]", text)
         text = PAT_EMAIL.sub(lambda m: self.email(m.group(0)), text)
@@ -468,7 +536,35 @@ class Masker:
         m = PAT_SSN.fullmatch(v)
         if m:
             return self.ssn(m)
+        if self._is_name_key(key_norm) or NAME_RUN.fullmatch(v.strip()):
+            self.learn(v)
         return self.fpe(v)
+
+    @staticmethod
+    def _is_name_key(nk: str) -> bool:
+        return (nk.endswith("name") and nk not in UI_NAME_KEYS) or nk in NAME_KEYS
+
+    def _collect(self, obj, parent_key: str = "", person_ctx: bool = False) -> None:
+        """First pass over JSON: learn names before masking, so a name that also
+        appears in a free-text field earlier in the document is caught too."""
+        if isinstance(obj, dict):
+            nkeys = {k: norm_key(k) for k in obj}
+            ctx = (person_ctx or bool(PERSONISH_PARENTS.search(str(parent_key)))
+                   or any(is_strong_key(nk) for nk in nkeys.values()))
+            for k, v in obj.items():
+                nk = nkeys[k]
+                if isinstance(v, str) and (self._is_name_key(nk) or (ctx and nk == "name")):
+                    self.learn(v)
+                elif isinstance(v, (dict, list)) or (isinstance(v, str) and v.strip()[:1] in ("{", "[")):
+                    self._collect(v, str(k), ctx and isinstance(v, (dict, list)))
+        elif isinstance(obj, list):
+            for v in obj:
+                self._collect(v, parent_key, person_ctx)
+        elif isinstance(obj, str):
+            try:
+                self._collect(json.loads(obj), parent_key, person_ctx)
+            except ValueError:
+                pass
 
     def _mask_all(self, v, nk: str):
         if isinstance(v, dict):
@@ -524,7 +620,9 @@ class Masker:
             if text.startswith(guard):
                 prefix, text = guard, text[len(guard):]
                 break
-        return prefix + json.dumps(self.mask_json(json.loads(text)), ensure_ascii=False, separators=(",", ":"))
+        obj = json.loads(text)
+        self._collect(obj)
+        return prefix + json.dumps(self.mask_json(obj), ensure_ascii=False, separators=(",", ":"))
 
     # ----- CSV, XML, text -----
     def mask_csv(self, text: str) -> str:
@@ -554,7 +652,26 @@ class Masker:
         return self.fpe(text)
 
     # ----- HTML -----
+    def _learn_from_html(self, html: str) -> None:
+        """First pass: names in table cells, definition values and text inputs."""
+        for m in re.finditer(r"<(td|dd)\b[^>]*>\s*(?:<[^>]+>\s*)*([^<]{3,80}?)\s*<", html, re.I):
+            txt = m.group(2).strip()
+            if NAME_RUN.fullmatch(txt) and not all(w.lower() in UI_WORDS for w in txt.split()):
+                self.learn(txt)
+        for m in re.finditer(r"<input\b[^>]*>", html, re.I):
+            tag = m.group(0)
+            t = re.search(r"\btype\s*=\s*['\"]?([A-Za-z\-]+)", tag, re.I)
+            if (t.group(1).lower() if t else "") not in ("", "text"):
+                continue
+            v = re.search(r"\bvalue\s*=\s*(?:(['\"])(.*?)\1|([^\s\"'>]+))", tag, re.I | re.S)
+            if v and NAME_RUN.fullmatch((v.group(2) or v.group(3) or "").strip()):
+                self.learn((v.group(2) or v.group(3)).strip())
+        for m in re.finditer(r"(['\"]?)([A-Za-z_][A-Za-z0-9_]{1,60})\1\s*:\s*(['\"])([^'\"\\]{3,80})\3", html):
+            if self._is_name_key(norm_key(m.group(2))):
+                self.learn(m.group(4))
+
     def mask_html(self, html: str) -> str:
+        self._learn_from_html(html)
         out, pos = [], 0
         for m in re.finditer(r"(<(script|style)\b[^>]*>)(.*?)(</\2\s*>)", html, re.I | re.S):
             out.append(self._mask_markup(html[pos:m.start()]))
@@ -609,24 +726,45 @@ class Masker:
                 return put("#parity-masked")
             if al in ("href", "src", "action", "formaction", "srcset", "poster"):
                 return put(self.mask_url(val))
-            if al in ("title", "alt", "placeholder", "value", "content", "label") or al.startswith(("aria-", "data-")):
+            if al in ("title", "alt", "aria-label", "aria-description", "aria-valuetext", "label"):
+                return put(self.mask_patterns(self.mask_names(val)))
+            if al in ("placeholder", "value", "content") or al.startswith(("aria-", "data-")):
                 return put(self.mask_patterns(val))
             return m.group(0)
 
         return re.sub(r"([A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*(?:(['\"])(.*?)\2|([^\s\"'>=`]+))", attr, tag, flags=re.S)
 
+    DATA_TAGS = ("td", "dd", "textarea")
+    NAME_TAGS = ("title", "h1", "h2", "h3", "h4", "h5", "h6")
+    CHROME_TAGS = ("button", "th", "label", "option", "select", "legend", "caption")
+
+    def _mask_cell_text(self, text: str) -> str:
+        """Record text in a cell: every word masked except interface words."""
+        def word(m):
+            w = m.group(0)
+            return w if ACTION_WORDS.match(w) else self.fpe(w)
+        if text.strip().endswith(":"):
+            return self.mask_patterns(text)
+        return re.sub(r"\S+", word, self.apply_known(text))
+
     def _mask_markup(self, html: str) -> str:
-        out, in_textarea = [], False
+        depth = {t: 0 for t in self.DATA_TAGS + self.NAME_TAGS + self.CHROME_TAGS}
+        out = []
         for p in re.split(r"(<[^>]*>)", html):
             if p.startswith("<"):
-                low = p.lower()
-                if low.startswith("<textarea"):
-                    in_textarea = True
-                elif low.startswith("</textarea"):
-                    in_textarea = False
+                m = re.match(r"<\s*(/?)\s*([A-Za-z][A-Za-z0-9]*)", p)
+                if m and m.group(2).lower() in depth and not p.rstrip().endswith("/>"):
+                    tag = m.group(2).lower()
+                    depth[tag] = max(0, depth[tag] + (-1 if m.group(1) else 1))
                 out.append(self._mask_tag(p))
-            elif in_textarea and p.strip():
-                out.append(self.fpe(p))
+            elif not p.strip():
+                out.append(p)
+            elif any(depth[t] for t in self.CHROME_TAGS):
+                out.append(self.mask_patterns(p))
+            elif any(depth[t] for t in self.DATA_TAGS):
+                out.append(self._mask_cell_text(p))
+            elif any(depth[t] for t in self.NAME_TAGS):
+                out.append(self.mask_patterns(self.mask_names(p)))
             else:
                 out.append(self.mask_patterns(p))
         return "".join(out)
