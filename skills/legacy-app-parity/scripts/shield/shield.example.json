@@ -1,0 +1,18 @@
+{
+  "_comment": "Copy to <app repo>/docs/parity/shield.json and edit targets and log_dir. Exact host and path values only: patterns are rejected on purpose. Pinned writes and login rules are added by the operator with shieldctl, never by the agent.",
+  "version": 1,
+  "proxy_port": 8899,
+  "debug_port": 9333,
+  "targets": ["*.forthcrm.com"],
+  "static_hosts": [],
+  "static_paths": "^/(static|assets|dist|build|fonts|img|images/ui|css|js)/",
+  "blocked_hosts": [],
+  "danger_words": [],
+  "allow_get": [],
+  "pinned_writes": [],
+  "login_rules": [],
+  "websocket_allow": [],
+  "rate_per_sec": 4,
+  "burst": 12,
+  "log_dir": "/ABSOLUTE/PATH/TO/APP/docs/parity/_raw/shield"
+}
