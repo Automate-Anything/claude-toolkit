@@ -97,7 +97,8 @@ Before doing work a skill covers, read that skill first. Highlights:
 - Phone and voice: `retell-phone-agent`, `voice-agent-prompting`,
   `self-hosted-voice-agent`, `phone-number-provisioning`,
   `voice-mishear-aliases`, `signalwire-docs`.
-- Messaging: `whatsapp-whapi-integration` (with the vendor reference `whapi`),
+- Messaging: `whatsapp-api` (USING the Automate Anything WhatsApp API from an app: keys,
+  endpoints, webhooks), `whatsapp-whapi-integration` (with the vendor reference `whapi`),
   `whatsapp-self-hosted-evolution`, `iproyal-proxies`, `email-infrastructure`,
   `release-announcements`.
 - Running a product: `support-triage`, `help-center-upkeep`,
