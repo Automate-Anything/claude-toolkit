@@ -1,8 +1,8 @@
 ---
 name: whatsapp-api
-description: How to send and receive WhatsApp messages from an app through the Automate Anything WhatsApp API (https://wa-api.automateanything.ai), a WHAPI-compatible REST API. Use it whenever a project needs to create a WhatsApp number, link a phone to it (QR or pairing code), send text / media / locations / contacts, react, mark read, edit or delete messages, receive messages and delivery ticks by webhook, download media, or migrate code written for WHAPI. Covers the two keys (partner key, number token), where the keys come from and how to keep them secret, every endpoint, the webhook event format, errors, and the known rough edges.
+description: How to send and receive WhatsApp messages from an app through the Automate Anything WhatsApp API (https://wa-api.automateanything.ai), a WHAPI-compatible REST API. Use it whenever a project needs to create a WhatsApp number, link a phone to it (QR or pairing code), send text / media / locations / contacts, react, mark read, edit or delete messages, receive messages and delivery ticks by webhook, download media, limit a number to the chats its owner allows (allowlist mode), or migrate code written for WHAPI. Covers the two keys (partner key, number token), where the keys come from and how to keep them secret, every endpoint, the webhook event format, errors, and the known rough edges.
 metadata:
-  updated: "2026-11-15"
+  updated: "2026-11-16"
 ---
 
 # Automate Anything WhatsApp API
@@ -161,6 +161,24 @@ keep `message.id` to react, edit or delete later.
 | `GET /media/{id}` | Download a received image, voice note, document, ... (`id` = the message id) |
 | `GET /gateway/deliveries?after_id=` | This number's recent webhook events and whether each reached your app ("did my app get it?") |
 
+**Allowlist mode (number token; only for numbers in allowlist mode).** Some accounts have
+allowlist mode switched on by us, for numbers whose owner allows only certain chats (for example a
+personal phone). Such a number handles **only the chats on its list**: every message is decrypted
+as normal (so a chat allowed later works from its very next message), and a message from any other
+chat is dropped on our server straight after, before it is stored, logged, sent to your webhook or
+its media fetched. Sends, read receipts, typing and calls to other chats are refused with 403,
+history sync is off, and no chat or contact lists are stored (the phone's contact book is never read). Encryption keys (Signal sessions and
+sender keys) for other contacts are kept only so allowed chats keep working; no message text or
+names are stored for them. Webhook delivery copies are kept less than a day. A number created in
+allowlist mode shows `allowlist_mode: true` and has **no list yet, so it drops every chat until you
+send one.**
+
+| Method + path | Does |
+|---|---|
+| `PUT /allowlist` | `{ "chats": ["<id>@g.us", "<digits>@s.whatsapp.net", "<id>@lid", "+1 415 555 1234"] }`: the WHOLE list in one call (it replaces the one in force; at most 5,000; plain phone numbers with the country code are accepted; no device part). `200 { count }`; `400 { error: "bad_allowlist" }` = one id is wrong, nothing changed; `503 { error: "not_stored", count }` = in force but not saved, send it again. Send the full list whenever it changes, and again every few minutes |
+| `GET /allowlist` | Counts only: `{ allowlist_mode, has_list, chats, list_set_at }` |
+| `GET /allowlist/chats` | For a "pick your chats" screen: `{ chats: [{ id, name, kind: "group" }] }`, the phone's groups, read live. Never stored. The phone's contact book is never read, so let the person type numbers for one-to-one chats. Needs a linked phone |
+
 ## 4. Receiving: the webhook events
 
 Every event is a `POST` (or the event's own method with `mode: "method"`) with JSON carrying
@@ -215,7 +233,7 @@ Errors look like WHAPI's: `{ "error": { "code": 400, "message": "A plain sentenc
 | 400 | A field is missing or wrong | Read `message`, fix the request |
 | 401 | Key missing or wrong | Check you used the right key for this endpoint (partner vs number) |
 | 404 | Number or message not found (or belongs to another account) | Check the id |
-| 403 | WhatsApp banned this number | It cannot send or link again; tell the person |
+| 403 | WhatsApp banned this number, or (allowlist mode) the chat is not on the number's list | Banned: it cannot send or link again; tell the person. Not on the list: add the chat with `PUT /allowlist` first |
 | 409 | Number already linked (when linking), or not linked / logged out (when sending) | Link it (`GET /users/login`), wait for `GET /health` = `AUTH` |
 | 502 | WhatsApp's side did not answer; nothing may have been sent | Check (for example `GET /gateway/deliveries`) before sending again; do not blindly resend |
 | 503 | A linked number is reconnecting, or no capacity to connect a new number | Nothing was sent: retry in a few seconds (reconnecting) or minutes (capacity); tell the person if it persists |
