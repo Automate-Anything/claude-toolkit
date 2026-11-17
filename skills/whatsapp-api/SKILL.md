@@ -2,7 +2,7 @@
 name: whatsapp-api
 description: How to send and receive WhatsApp messages from an app through the Automate Anything WhatsApp API (https://wa-api.automateanything.ai), a WHAPI-compatible REST API. Use it whenever a project needs to create a WhatsApp number, link a phone to it (QR or pairing code), send text / media / locations / contacts, react, mark read, edit or delete messages, receive messages and delivery ticks by webhook, download media, limit a number to the chats its owner allows (allowlist mode), or migrate code written for WHAPI. Covers the two keys (partner key, number token), where the keys come from and how to keep them secret, every endpoint, the webhook event format, errors, and the known rough edges.
 metadata:
-  updated: "2026-11-16"
+  updated: "2026-11-17"
 ---
 
 # Automate Anything WhatsApp API
@@ -35,8 +35,11 @@ you work for what you sent, what came back and when, so they can report it.
 | **Partner key** | `aa_pk_...` | Creates, lists, renames and deletes **one account's** numbers. Other accounts' numbers are invisible to it. | `Authorization: Bearer <partner key>` on the **Numbers** endpoints |
 | **Number token** | returned as `token` when a number is created | Everything for ONE number: linking a phone, sending, settings, media. | `Authorization: Bearer <number token>` on every other endpoint |
 
-- A person makes the partner key on the admin page (Partner accounts, one account per app or
-  project). It is shown once. **You never create or guess keys.**
+- A person makes the partner key: an owner of the account on the partner page
+  (`https://wa-api.automateanything.ai/partner`, API keys), or we do it on the admin page. An
+  account can have several keys (one per server or app, each with a name, at most 10); a new key
+  works next to the old ones, so a server can switch keys with no gap, then the old key is deleted.
+  A key is shown once. **You never create or guess keys.**
 - **Read keys from the project's own secret settings** (for example environment variables
   `WA_API_PARTNER_KEY` and, per number, `WA_API_NUMBER_TOKEN`). If a key you need is missing, stop
   and ask the person for it. Do not search the computer for keys.
@@ -79,7 +82,7 @@ curl -X POST $BASE/messages/text -H "Authorization: Bearer $WA_API_NUMBER_TOKEN"
 
 | Method + path | Does |
 |---|---|
-| `PUT /channels` | Create a number `{ name? }` -> `{ id, token, ... }` |
+| `PUT /channels` | Create a number `{ name?, allowlist_mode? }` -> `{ id, token, ... }` (`allowlist_mode: true` = this number starts in allowlist mode, see below) |
 | `GET /channels/list` | This account's numbers (`?count`, `?offset`) |
 | `PATCH /channels/{id}` | Rename `{ name }` |
 | `DELETE /channels/{id}` | Delete (logs the phone out, removes the number for good) |
@@ -161,9 +164,12 @@ keep `message.id` to react, edit or delete later.
 | `GET /media/{id}` | Download a received image, voice note, document, ... (`id` = the message id) |
 | `GET /gateway/deliveries?after_id=` | This number's recent webhook events and whether each reached your app ("did my app get it?") |
 
-**Allowlist mode (number token; only for numbers in allowlist mode).** Some accounts have
-allowlist mode switched on by us, for numbers whose owner allows only certain chats (for example a
-personal phone). Such a number handles **only the chats on its list**: every message is decrypted
+**Allowlist mode (number token; only for numbers in allowlist mode).** For a number whose owner
+allows only certain chats (for example a personal phone). You choose it per number when you create
+it (`PUT /channels` with `allowlist_mode: true`; your other numbers are not affected), or we switch
+it on for your whole account, and then every number you create starts in it (`GET /partners` shows
+`allowlist_mode: true`). It is fixed when the number is created. Such a number handles **only the
+chats on its list**: every message is decrypted
 as normal (so a chat allowed later works from its very next message), and a message from any other
 chat is dropped on our server straight after, before it is stored, logged, sent to your webhook or
 its media fetched. Sends, read receipts, typing and calls to other chats are refused with 403,
