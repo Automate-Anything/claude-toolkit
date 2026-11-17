@@ -53,51 +53,45 @@ task that works end to end is worth more than ten screens that each pass alone.
 
 ## Design
 
-### Frozen, free, gray
+**The default is an exact copy of the source. There is no design choice to make: the source screenshot
+is the design.** You do not merge or split screens, fix a bug or quirk, rename a label, swap a popup
+for a dialog, add inline validation, or change a text field into a picker. The source does it that
+way, so you do it that way. If one of those looks worth changing, note it for the owner but build it
+as the source has it unless the owner explicitly says to change it, which is then recorded in
+`decisions.md`.
 
-**Frozen (the contract):** position and order of every menu, menu item, button, tab, field and
-column; labels and wording; screen-to-screen flow and which screen opens where (same window, popup,
-tab); tab order; keyboard shortcuts and access keys; Enter and Esc behavior; defaults; where messages
-appear; information density (how much fits on one screen without scrolling; staff scan by position).
+### Everything matches
 
-**Free (the skin):** typeface and type scale, spacing, color shades within the old system's color
-identity (if the brand bar was dark blue it stays a blue), borders, radius, shadows, icon style,
-control styling, focus and hover states, contrast, loading and empty states, behavior on smaller
-screens (the desktop layout still matches).
+Match all of it to the source, from the screenshots and from `tokens.js` / `interactions.js`:
 
-**Gray zone (ask the owner):** merging or splitting screens; fixing an old bug or quirk; renaming a
-confusing label; replacing a popup window with an in-page dialog; adding inline validation where the
-old system validated on save; changing a date entry field into a date picker (people type dates fast;
-a picker can slow them down).
+- position and order of every menu, item, button, tab, field and column; labels and wording; flow and
+  which screen opens where; tab order; shortcuts; Enter/Esc behavior; defaults; where messages appear;
+  density;
+- fonts, font sizes and weights; colors (background, text, borders, accents); spacing and alignment;
+  borders, radii and shadows; control shapes; icons;
+- hover styles, focus rings, active states, cursors; transitions and `@keyframes` animations (same
+  properties, durations and easing); scrollbars.
 
-### The three directions
-
-Build the busiest list screen and the busiest form screen in three directions, all with the frozen
-contract intact:
-
-1. **Faithful:** the old look, cleaned up. Same palette and density, crisper type, consistent spacing,
-   fixed alignment. Lowest change aversion.
-2. **Refreshed:** modern controls and type, the same layout, density and color identity.
-3. **Modern:** a new visual language with every control in the same position and order.
-
-Put screenshots in `_raw/shots/faithful/`, `_raw/shots/refreshed/`, `_raw/shots/modern/` and run
-`parity_report.py`: it shows the old screen and each direction side by side. Run `layout_diff.py`
-on each direction too: a direction that fails the contract is not offered. Present them in plain
-English with your recommendation (usually faithful or refreshed for expert staff who use the system
-all day).
-
-**The two-second test:** for each direction, someone who knows the old system should find any control
-in about two seconds without searching. If the owner can ask one or two long-time staff to look at the
-three options, their reaction is better evidence than anyone's taste.
+Do not substitute your component library's defaults for the source's look. A flat grey source button
+becomes a flat grey button, not a rounded accent-colored one.
 
 ### Tokens
 
-`tokens.js` output (`_raw/tokens/*.json`) is the source of truth for the old color identity, base
-font size and density. Map it into the app's design system as named tokens (brand, surface, text,
-link, primary action, table header, row stripe, border, focus) so the whole app follows one decision.
-Follow the repo's own design rules for everything the contract leaves free; where a house rule
-conflicts with the old system's color identity or density, the contract wins for this project and the
-conflict is recorded in `decisions.md`.
+`tokens.js` output (`_raw/tokens/*.json`) is the exact source of the source's colors, fonts, sizes and
+spacing; `interactions.js` is the exact source of its hover/focus styles, transitions and animations.
+Map both into the new app's design system as named tokens so the whole app follows them, and set the
+tokens to the SOURCE's values, not a house palette. Where a repo house rule (a default font, a default
+radius) conflicts with the source, the source wins for this project; note the conflict in
+`decisions.md`.
+
+### Optional: only if the owner explicitly asked to modernize
+
+Skip this entirely unless the owner asked, in writing, for a more modern look. If they did, keep every
+position, label, order, shortcut and behavior unchanged, and build the busiest list screen and the
+busiest form screen in 2-3 named directions (faithful / refreshed / modern), show them with
+`parity_report.py` next to the source, run `layout_diff.py` on each (a direction that breaks the
+layout is not offered), and let the owner choose. Record the chosen deviations in `decisions.md`. The
+bar: someone who knows the source finds any control in about two seconds without searching.
 
 ## Build
 

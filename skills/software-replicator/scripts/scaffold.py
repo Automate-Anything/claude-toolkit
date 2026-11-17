@@ -22,7 +22,8 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES = os.path.join(HERE, '..', 'assets', 'templates')
 RAW_DIRS = ['shots/old', 'shots/new', 'inventory/old', 'inventory/new', 'snapshots/old', 'snapshots/new',
-            'net', 'js', 'tokens', 'diff', 'report', 'exports/old', 'exports/new']
+            'interactions/old', 'interactions/new', 'net', 'js', 'tokens', 'diff', 'report',
+            'exports/old', 'exports/new']
 
 
 def git(repo, *args):

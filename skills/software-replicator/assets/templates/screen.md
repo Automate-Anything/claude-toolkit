@@ -19,6 +19,15 @@ Generated from the inventory; edit only to add what the inventory cannot see.
 - Data tables: columns in order, default sort, page size, row actions
 - Messages: where errors, confirmations and warnings appear, and how they look (inline, banner, alert box)
 
+## Look and feel (must match exactly; from tokens.js, interactions.js and screenshots)
+
+- Resting style: fonts and sizes, colors (background, text, borders, accents), spacing, borders, radii, shadows
+- Hover: what changes on hover for each main control (color, shadow, cursor, movement), evidence `_raw/shots/old/S##-hover-*.png`
+- Focus: the focus ring / focus style, evidence `_raw/shots/old/S##-focus-*.png`
+- Cursors: non-default cursors (pointer, etc.) and where
+- Transitions and animations: each one (what moves, how far, duration, easing), CSS or JS, evidence `_raw/interactions/old/S##.json`
+- Scrollbars: custom scrollbar styling, if any
+
 ## Behavior (one row per control or event)
 
 | Control / event | What it does | Preconditions | Result and side effects | Evidence | Label |

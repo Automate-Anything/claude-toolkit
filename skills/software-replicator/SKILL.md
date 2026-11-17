@@ -1,6 +1,6 @@
 ---
 name: software-replicator
-description: Replicate an existing software system in the user's own app so it looks and works the same and nobody needs retraining: the same screens, menus and buttons in the same places, the same labels, shortcuts and tab order, and the same behavior (validations, calculations, defaults, search, exports, roles, side effects), under a cleaner skin if wanted. The agent drives the system in a real browser, inventories every screen with bundled scripts, records what each control does, maps the data model from network traffic, writes a spec and gap list against the new app, agrees a familiar design, rebuilds screen by screen, and proves it matches with layout diffs and scenario replays. No proxy, no masking, no restrictions: it uses the system normally. Use whenever someone wants to replicate, copy, clone, mimic, rebuild or replace existing software, match another app's screens or functionality, keep the same buttons in the same place, or switch a team off a paid system without retraining.
+description: Replicate an existing software system in the user's own app so it looks and works EXACTLY the same and nobody needs retraining: same screens and buttons in the same places, same labels, fonts, colors, spacing, borders and shadows, same shortcuts and tab order, same hover and focus states, transitions and animations, and same behavior (validations, calculations, defaults, search, exports, roles, side effects). It copies the source exactly and never invents or asks how the new system should look or behave; the answer is always "exactly like the source." The agent drives the system in a real browser, inventories every screen, captures interaction states and animations, maps the data model, rebuilds screen by screen, and proves it matches with layout diffs and screenshot comparison driven to a visual match. Use whenever someone wants to replicate, copy, clone, mimic, rebuild or replace existing software, match another app's screens or functionality exactly, or keep the same buttons in the same place.
 compatibility: Needs the Chrome DevTools MCP (see the browser-verification skill) and Python 3.9+. Optional REA CLI via npx for reading the site's JavaScript. Works in Claude Code, Cursor and Codex.
 ---
 
@@ -8,28 +8,55 @@ compatibility: Needs the Chrome DevTools MCP (see the browser-verification skill
 
 Someone uses an existing system (a dated web app, a vendor portal, a SaaS) and wants their own app to
 replace it, with no retraining: a staff member sits down and does a normal day's work without having
-to ask where anything went. That takes two things at once: the **layout** (every menu, button, field
-and column where they expect it, with the same words) and the **behavior** (every rule, calculation,
-default and side effect the same). The skin can be cleaner and more modern. The muscle memory must
-not break.
+to ask where anything went. That takes two things at once: the **layout and look** (every menu,
+button, field and column where they expect it, with the same words, fonts, colors, spacing, borders,
+shadows, hover and focus states and animations) and the **behavior** (every rule, calculation,
+default and side effect the same). The muscle memory must not break, and neither should the feel.
 
 You learn the system the way a user does: by using it in a real browser and recording what it shows
 and does. You then change the owner's existing app (do not start a new one unless it has none) until
 the evidence says the two match. This skill uses the system normally, with no proxy, masking or
 access restriction, so drive it like a regular user.
 
+## The exactness doctrine (read this first, it governs everything)
+
+**You replicate the source exactly. You do not design, improve, simplify, or decide. The source is
+the specification for every pixel and every behavior.**
+
+1. **Never invent, never ask how the new system should look or behave.** Whenever you would otherwise
+   ask the owner "how should this work / look / validate / be ordered / be named / be styled?", the
+   answer is already fixed: **exactly how the source system does it.** Do not ask. Do not pick. Do not
+   modernize. Do not "clean up." Copy what the source does, down to the wording, the colors, the
+   spacing, the hover effect and the animation.
+2. **If you do not know what the source does, go look, do not guess and do not ask.** An unanswered
+   "how should X behave" is never a question for the owner. It is a signal that you have not observed
+   the source closely enough: open that screen, trigger that state, hover that element, read that CSS
+   rule, watch that animation. Only if the source genuinely cannot be observed (a screen your account
+   cannot reach, a server-only rule) do you ask, and then you ask the owner to SHOW you what the
+   source does (a screenshot, a recording), never what they would prefer.
+3. **The only things you may still ask about are operational, not design or behavior:** which account
+   or login to use, where the new app's repo is, data-migration scope and timing, cutover timing,
+   whether the replacement will be sold (a legal question), and genuinely unreachable screens. Nothing
+   about how a control looks, behaves, validates, calculates, or is laid out: that is always the
+   source's answer.
+4. **A deviation from the source is a defect, not a choice.** The only allowed differences are ones
+   the owner EXPLICITLY asks for in writing (for example "make it look more modern"); record each in
+   `decisions.md` as an approved deviation. Absent that, same is the target, and "close enough" is not
+   done. By default, even the skin is copied exactly; you only restyle if the owner explicitly says so.
+
 ## Four facts this whole skill is built on
 
-1. **Retraining comes from moved things, renamed things, changed steps and lost shortcuts, not from
-   colors.** So positions, order, labels, tab order, keyboard behavior and flow are a frozen
-   contract. Fonts, spacing, color shades and control styling are free to improve. When unsure
-   whether something is contract or skin, it is contract until the owner says otherwise.
+1. **Everything is the contract, not just positions.** Positions, order, labels, tab order, keyboard
+   behavior and flow must match, AND so must the look: fonts, font sizes and weights, colors,
+   spacing, borders, shadows, radii, hover and focus states, cursors, transitions and animations.
+   Copy all of it exactly. The only things free to differ are ones the owner explicitly asked to
+   change; everything else matches the source.
 2. **A website's real rules live on the vendor's server, where no tool can read them.** What you can
    learn: what the screens show (screenshots, inventories), what each action does (exercising
    controls), what the page sends and receives (network traffic, which reveals the data model), and
    the JavaScript the site downloads into the browser (client-side rules). Server-side rules you pin
-   down by controlled input and output tests. Anything you could not pin down is a question for the
-   owner, never a guess.
+   down by controlled input and output tests. Anything you could not pin down you go back and
+   observe in the source; you never guess, and you never ask the owner how it should behave.
 3. **Be deliberate on a live system, but do not tie your own hands.** Use an account that can see
    every screen (a sandbox if one exists, otherwise the owner's normal or admin account is fine).
    Read freely. Before an action that changes data, sends a message, or moves money, know what it
@@ -48,6 +75,8 @@ access restriction, so drive it like a regular user.
 | `scripts/ready.js` | Capture gate. Run before every capture; capture only when `status` is `READY`. |
 | `scripts/inventory.js` | The layout contract of one screen: every control with label, position, order, tab order, field rules, menu path, row actions, tables, headings, prominent text, frames. Finds JS-bound clickables the accessibility tree misses. |
 | `scripts/tokens.js` | Colors, fonts, sizes, spacing, radii and their likely roles, from computed styles on logged-in pages. |
+| `scripts/interactions.js` | The look-and-feel contract: hover, focus, active and focus-visible styles (from the stylesheets and by actually hovering), cursors, transitions, `@keyframes` animations and which elements use them, scrollbars. This is how hover effects and animations get copied instead of lost. |
+| `scripts/visual_diff.py` | Pixel-compares the old screenshot and the new one at the same size and state: percent different, a highlighted diff image, and the regions that differ. Drive it to ~0 (a visual match). Uses Pillow (`pip install pillow`). |
 | `scripts/layout_diff.py` | Old inventory vs new inventory: missing controls, label changes, controls that moved relative to their neighbours, tab order, required/max length/options/access keys, table columns, lost titles, key handlers to verify, button types, lost form names, density, and captures that show different data. Exit 1 on blocking differences. |
 | `scripts/state_diff.py` | Before/after inventories around ONE action: what got enabled, hidden, filled, recalculated, which messages appeared. The difference is the behavior. |
 | `scripts/net_schema.py` | Captured traffic to a value-free data-model catalog: endpoints, fields, types, which screen action fired each. |
@@ -120,9 +149,15 @@ state. Detail: `references/capture-playbook.md` (Mapping).
   (`ready.js` READY, assets load, no errors) before mass capture.
 - Reach screens by **clicking through the UI from the home screen** and record that click path. Many
   old systems break, or behave differently, when a deep page is opened by URL.
-- Per screen: `ready.js` until READY, then `take_screenshot`, `inventory.js`, and `take_snapshot`,
-  saved under `_raw/` with the screen ID. Capture each meaningful state: default, filled, validation
-  error, empty list, selected row, open menu, open dialog.
+- Per screen: `ready.js` until READY, then `take_screenshot`, `inventory.js`, `tokens.js`,
+  `interactions.js`, and `take_snapshot`, saved under `_raw/` with the screen ID. Capture each
+  meaningful state: default, filled, validation error, empty list, selected row, open menu, open dialog.
+- **Capture the look and feel, not just the layout.** `interactions.js` reads the hover/focus/active
+  styles, transitions and `@keyframes` from the page's CSS. On top of that, for the main controls
+  (primary buttons, nav items, links, table rows, tabs, toggles), actually `hover` the element with
+  the MCP hover tool and `take_screenshot` the hovered state, and `press_key` Tab to a field and
+  screenshot the focus ring. Those hover and focus screenshots are the target the rebuild must match.
+  Watch any animation (a menu sliding, a spinner, a row expanding) and note its shape and timing.
 - After each batch run `scripts/coverage.py`. Keep going until the frontier is empty or the owner has
   scoped out what remains. Never open a link it marks dangerous by URL.
 - Fill `site-map.md` as you go, including fidelity (A to D) and screens your account cannot reach.
@@ -152,51 +187,68 @@ messages a customer, use a sandbox or ask the owner rather than firing it on a r
   handlers and request URLs; use REA for large or minified bundles.
 - Exports and printouts: save the real bytes, check the real format (many ".xls" files are HTML),
   keep them as golden files.
-- Hidden behavior: ask the owner, read settings screens (read-only) for automations, notifications,
-  integrations, scheduled reports. List what you could not observe as questions.
+- Hidden behavior: read settings screens, automation and notification config, scheduled reports. For
+  anything you could not observe, go back and observe it in the source (trigger it, read its config);
+  only ask the owner when a screen or rule is genuinely unreachable, and then ask them to show you
+  what the source does, not what they would prefer.
 - Write `screens/S##-name.md` from the template, labelling every row OBSERVED, INFERRED or UNKNOWN.
   Write the end-to-end tasks in `scenarios.md`, recording every output, and run each one twice on
   the old system to find noise fields (timestamps, generated numbers) to ignore later.
 
-## Phase 3: Spec and gap list (STOP for owner approval)
+## Phase 3: Spec and gap list (STOP to show scope, not to make choices)
 
-Detail: `references/spec-design-build.md`.
+Detail: `references/spec-design-build.md`. This stop is a progress and scope checkpoint, not a place
+to ask how anything should look or behave. Every behavior and every pixel is already decided: it is
+whatever the source does.
 
 1. Every screen behavior and scenario becomes a REQ in the repo's `PROJECT_SCOPE.md` traceability
-   matrix (Given / When / Then), in the old system's own words.
-2. Read the existing app and classify every REQ: **matches**, **exists but differs**, **missing**.
-   List features the new app has that the old one lacks (they stay, but must not sit where staff
-   expect something else). Include data-model gaps.
-3. Flag likely-unused features and quirks staff may rely on as owner questions. Never drop or "fix"
-   anything silently.
+   matrix (Given / When / Then), in the source system's own words.
+2. Read the existing app and classify every REQ: **matches the source**, **exists but differs from
+   the source** (a defect to fix), **missing**. List anything the new app currently has that the
+   source does not; by default that extra is removed or hidden so the app matches the source, unless
+   the owner explicitly keeps it. Include data-model gaps.
+3. Do not drop, rename, or "fix" anything the source does, even an apparent bug or an unused feature:
+   replicate it. If something looks like a bug worth flagging, note it for the owner but build it as
+   the source has it unless they explicitly say otherwise.
 4. Propose a build order by scenario (whole tasks), most-used first.
-5. Stop. Summarize in plain English: screens found, what already matches, what is missing, rough
-   effort, the batched questions. Wait for approval.
+5. Stop only to show scope: screens found, what already matches, what differs from the source, what is
+   missing, rough effort, and any genuinely unreachable screens you need shown to you. Do not ask
+   design or behavior questions here.
 
-## Phase 4: Familiar-but-modern direction (STOP for owner choice)
+## Phase 4: Match the look exactly (no design choices by default)
 
-Detail: `references/spec-design-build.md` (Design).
+Detail: `references/spec-design-build.md` (Design). **The default is an exact visual copy of the
+source. You do not design, choose a direction, or modernize unless the owner explicitly asked for
+that in writing.**
 
-- Frozen: position and order of every menu, item, button, tab, field and column; labels; screen flow;
-  tab order; shortcuts; defaults; where messages appear; information density.
-- Free: fonts, spacing, color shades (keep the old system's color identity), icon and control styling,
-  contrast and focus states, loading and empty states, small-screen behavior.
-- Build two representative screens (the busiest list and the busiest form) in three directions:
-  **faithful** (same look, cleaner), **refreshed** (modern controls, same layout and color identity),
-  **modern** (new visual language, same positions). Show them with `parity_report.py` next to the old
-  screenshots. Each must pass `layout_diff.py`.
-- Bar: someone who knows the old system finds any control in about two seconds without searching.
-- After the choice, record tokens in the app's design system (use `tokens.js` output as the source of
-  truth for the color identity) and the decision in `decisions.md`.
+- Build the new screen to match the source's screenshot pixel for pixel: the same fonts, font sizes
+  and weights, the same colors (background, text, borders, accents), the same spacing and alignment,
+  the same borders, radii and shadows, the same control shapes, the same density. Use `tokens.js`
+  output as the exact source of the colors, fonts and spacing, and the source screenshots as the
+  target.
+- Copy the look and feel too: the hover styles, focus rings, active states and cursors from
+  `interactions.js`, and the transitions and `@keyframes` animations (same properties, durations and
+  easing). A hover effect or animation that exists in the source must exist in the new app.
+- Do not substitute a component library's default styling for the source's look. If the source's
+  button is a flat grey rectangle, the new button is a flat grey rectangle, not a rounded blue one.
+- **Only if the owner explicitly asked to modernize the look:** then, and only then, offer 2-3 named
+  directions and get their choice (the optional path in `references/spec-design-build.md`), keeping
+  every position, label, order and shortcut unchanged. Record the chosen deviations in `decisions.md`.
+  Absent an explicit request, skip this and copy the source exactly.
 
 ## Phase 5: Build, screen by screen
 
 Detail: `references/spec-design-build.md` (Build). Follow the repo's own rules for branches,
 worktrees, commits and the design system.
 
-- Work in the approved scenario order. For each screen, build layout and behavior together: labels
-  verbatim, same order, same tab order, same access keys and shortcuts, same defaults, same
-  validations and messages, same calculations (characterization tables as unit tests).
+- Work in the approved scenario order. For each screen, build layout, look and behavior together:
+  labels verbatim, same order, same tab order, same access keys and shortcuts, same defaults, same
+  validations and messages, same calculations (characterization tables as unit tests), AND the same
+  look: fonts, colors, spacing, borders, radii, shadows, hover styles, focus rings, cursors,
+  transitions and animations from `tokens.js` and `interactions.js`.
+- Re-create the source's animations and hover effects, do not approximate or skip them: same CSS
+  transition properties and durations, same `@keyframes`, same easing. If the source has no
+  animation, the new app has none either.
 - Put rules in the app's service layer, not in the UI, so they can be tested and reused.
 - Seed the new app with the same sandbox records the screenshots show, so comparisons are fair.
 - A screen is not done until it passes Phase 6. Commit per screen.
@@ -204,24 +256,37 @@ worktrees, commits and the design system.
 ## Phase 6: Verify it matches (per screen and per scenario)
 
 Detail: `references/verification.md`. Gates run in order and a later gate never overrides an earlier
-failure: capture integrity, layout, behavior, scenarios, visual review, adversarial review.
+failure: capture integrity, layout, **visual match**, look-and-feel, behavior, scenarios, adversarial
+review. A screen is not done until it matches the source.
 
-1. `ready.js` READY on both sides, same viewport, same data. Otherwise the result is
+1. `ready.js` READY on both sides, same viewport, same data, same state. Otherwise the result is
    NOT_COMPARABLE, which is never a pass.
 2. `inventory.js` on the new screen, then `layout_diff.py old.json new.json --renames renames.json`.
    Zero blocking items, or each one recorded as an approved deviation in `decisions.md`.
-3. Replay the screen's behavior rows and the `state_diff` probes on the new app.
-4. Replay each scenario with identical inputs on both systems, ignore the noise fields, compare every
-   output except those noise fields. Exports compare against the golden files.
-5. Regenerate `parity_report.py` and look at every pair yourself.
-6. Ask a fresh subagent with no build context to find at least five differences between old and new
-   for the screen, each with evidence. Fix what is real.
-7. Update `checklist.md` and the REQ evidence column. After any fix, re-run the diffs on every screen
-   already passed (fixes cause silent regressions).
-8. Run `ip_scan.py` with the vendor and product names before calling the project done.
+3. **Screenshot match (the main gate).** `take_screenshot` of the source and the new screen at the
+   same viewport, state and data, then `visual_diff.py old.png new.png --md`. Drive it to a match
+   (percent different at or near zero; default tolerance 0.5%). Open the red diff image, go to each
+   worst region it names, fix the difference, re-capture, re-run. Repeat until it reports MATCH. Also
+   look at the two screenshots yourself: the number is the floor, your eyes are the ceiling. Do this
+   for the resting state AND the hover, focus and error states you captured in Phase 1.
+4. **Look and feel.** Confirm every hover style, focus ring, cursor, transition and animation from the
+   source's `interactions.js` exists in the new app: hover the new control and compare to the source's
+   hover screenshot; trigger each animation and confirm it plays the same way. A missing hover effect
+   or animation is a failing difference, not a detail.
+5. Replay the screen's behavior rows and the `state_diff` probes on the new app; they must match the
+   source exactly.
+6. Replay each scenario with identical inputs on both systems, ignore the noise fields, compare every
+   other output. Exports compare against the golden files.
+7. Ask a fresh subagent with no build context to find at least five differences between source and new
+   for the screen (look, hover, animation, wording, order, behavior), each with evidence. Fix what is
+   real.
+8. Update `checklist.md` and the REQ evidence column. After any fix, re-run the layout diff and the
+   visual diff on every screen already passed (fixes cause silent regressions).
+9. Run `ip_scan.py` with the vendor and product names before calling the project done.
 
-Your end state is "ready for owner review" with evidence, or "failed with residuals" listed exactly.
-Only the owner accepts. Never say "pixel-perfect" or "identical"; name what was compared and how.
+Your end state is "matches the source" with the visual-diff numbers and screenshots as evidence, or
+"not yet matching" with each remaining difference listed. Only the owner accepts. State the measured
+result (for example "0.0% of pixels differ") rather than claiming "identical" without the number.
 
 ## Phase 7: Data (STOP before any database write)
 

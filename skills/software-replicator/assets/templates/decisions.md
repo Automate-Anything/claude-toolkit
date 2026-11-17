@@ -7,12 +7,12 @@ Owner decisions are recorded once and never asked again.
 - Environment: sandbox / limited live user (who, what role, what is blocked)
 - Approved test records (prefix ZZTEST) and cleanup list:
 
-## Design direction (Phase 4)
+## Design (Phase 4)
 
-- Chosen direction: faithful / refreshed / modern
-- Tokens recorded at: (design system file)
-- What stays frozen: positions, order, labels, tab order, shortcuts, defaults, flow, density
-- What was modernized: 
+- Default: **exact copy of the source** (look, hover, focus, animations and all). No design choices.
+- Did the owner explicitly ask to modernize the look? (yes / no). If no, leave the rest blank.
+- If yes: chosen direction (faithful / refreshed / modern), tokens recorded at (design system file),
+  and what was modernized (list each change; everything else still matches the source exactly).
 
 ## Approved deviations (the errata register)
 

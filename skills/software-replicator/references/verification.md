@@ -1,20 +1,23 @@
 # Verification (Phase 6)
 
-Prove parity screen by screen and task by task. The owner accepts; you present evidence.
+Prove the new app matches the source, screen by screen and task by task. The target is an exact copy,
+so the bar is a visual match, not "close." The owner accepts; you present evidence (the visual-diff
+numbers and the screenshots).
 
 ## Gate order
 
 Run in this order. A later gate never overrides an earlier failure (a beautiful screenshot does not
 rescue a missing field).
 
-1. **Capture integrity:** `ready.js` READY on both sides, same viewport, same records, same role.
-   Otherwise the comparison is NOT_COMPARABLE with a reason: AUTH_BLOCKED, NOT_READY, ERROR_PAGE,
-   DATA_MISMATCH, VIEWPORT_MISMATCH, ROLE_MISMATCH. NOT_COMPARABLE is never a pass.
+1. **Capture integrity:** `ready.js` READY on both sides, same viewport, same records, same role,
+   same state. Otherwise the comparison is NOT_COMPARABLE with a reason: AUTH_BLOCKED, NOT_READY,
+   ERROR_PAGE, DATA_MISMATCH, VIEWPORT_MISMATCH, ROLE_MISMATCH. NOT_COMPARABLE is never a pass.
 2. **Layout contract:** `layout_diff.py`.
-3. **Behavior:** the screen's behavior rows and state-diff probes replayed on the new app.
-4. **Scenarios:** whole tasks replayed on both systems with identical inputs.
-5. **Visual review:** `parity_report.py`, looked at by you, then by the owner.
-6. **Adversarial review:** a fresh subagent hunting for differences.
+3. **Screenshot match:** `visual_diff.py` driven to ~0% different, for every captured state.
+4. **Look and feel:** every hover, focus, cursor, transition and animation from the source is present.
+5. **Behavior:** the screen's behavior rows and state-diff probes replayed on the new app.
+6. **Scenarios:** whole tasks replayed on both systems with identical inputs.
+7. **Adversarial review:** a fresh subagent hunting for differences.
 
 ## Layout
 
@@ -47,6 +50,44 @@ expected from a re-spaced skin and are summarized, not listed.
 
 The diff compares visible controls. For menus that are closed by default, capture the open state on
 both sides and compare those inventories too.
+
+## Screenshot match (the main visual gate)
+
+The layout diff proves the structure; this proves the pixels. For each captured state (resting, and
+the hover, focus, filled, error, empty and open-menu states captured in Phase 1):
+
+1. `take_screenshot` of the source screen and the new screen at the SAME viewport, SAME data and SAME
+   state. Different data or state makes the comparison meaningless.
+2. Run it:
+
+       python3 scripts/visual_diff.py docs/parity/_raw/shots/old/S04.png docs/parity/_raw/shots/new/S04.png \
+           --out docs/parity/_raw/diff/S04-diff.png --json docs/parity/_raw/diff/S04-visual.json --md
+
+3. It prints the percent of pixels that differ, writes a red-highlighted diff image, and names the
+   worst grid regions. Open the diff image, go to each region, fix the difference in the new app
+   (wrong font, color, spacing, border, shadow, a missing element), re-capture, and re-run. Repeat
+   until it reports **MATCH** (at or near 0% different; the default tolerance is 0.5%, tighten it for
+   a hero screen).
+4. The number is the floor. Also look at the two screenshots side by side yourself and fix anything
+   your eyes catch that the threshold let through (a subtle gradient, a slightly wrong weight).
+5. Record the final percent in `checklist.md` as the evidence for that screen and state.
+
+If `visual_diff.py` reports Pillow is missing, install it (`pip install pillow`) or fall back to
+comparing the two screenshots by eye, region by region, which you do anyway.
+
+## Look and feel (hover, focus, animation)
+
+A screenshot of the resting state does not prove the hover effect or the animation carried over.
+Compare these against the source explicitly:
+
+- **Hover:** for each main control, `hover` it in the new app and `take_screenshot`, then compare to
+  the source's hover screenshot from Phase 1. The color, shadow, cursor and any movement must match.
+- **Focus:** Tab to each field in the new app and screenshot the focus ring; compare to the source.
+- **Transitions and animations:** every entry in the source's `interactions.js` (transitions,
+  `@keyframes`, animated elements) must have a match in the new app. Trigger each one (open the menu,
+  load the spinner, expand the row) and confirm it plays with the same property, duration and easing.
+  A hover effect or animation that exists in the source and not in the new app is a failing
+  difference, recorded and fixed, not waved through.
 
 ## Behavior
 
@@ -105,6 +146,7 @@ elsewhere.
 - `ip_scan.py --terms "<vendor>,<product>,<module names>"` clean before calling the project done.
 - `coverage.py`: frontier empty or owner-scoped.
 
-End states: **ready for owner review** (every gate passed with evidence) or **failed with residuals**
-(each residual named with its evidence). Never claim "pixel-perfect" or "identical". Name what was
-compared, how, and what is left.
+End states: **matches the source** (every gate passed, with the visual-diff percent and the
+screenshots as evidence) or **not yet matching** (each remaining difference named with its evidence).
+State the measured result, for example "resting and hover states 0.0% different, all animations
+present," rather than claiming "identical" with no number behind it.

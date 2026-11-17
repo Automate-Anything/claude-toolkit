@@ -74,6 +74,28 @@ compare old and new with the same role on both sides. Use the admin login for co
 button exists somewhere) and for testing writes. If you cannot reach a role, list its screens under "Not reachable" in the site map
 and ask the owner for screenshots.
 
+### Look and feel: hover, focus, animations (so they get copied, not lost)
+
+A resting-state screenshot and the inventory capture the layout, but not the hover effect, the focus
+ring, or the animation. Those are part of the copy and must be captured on purpose:
+
+1. **CSS states and animations in one shot:** run `interactions.js` on the screen and save it to
+   `_raw/interactions/old/<ID>.json`. It reads the `:hover`, `:focus`, `:active` and `:focus-visible`
+   rules, cursors, transitions, `@keyframes` animations and which elements use them, straight from
+   the page's stylesheets.
+2. **Live hover screenshots of the main controls:** for the primary button, nav items, links, table
+   rows, tabs and toggles, `hover` the element with the MCP hover tool and `take_screenshot` the
+   hovered state (suffix the file, for example `S04-hover-save.png`). Do the same for focus: `press_key`
+   Tab to a field and screenshot the focus ring (`S04-focus-custno.png`). These screenshots are the
+   exact target the rebuild's hover and focus states must match.
+3. **Animations:** trigger each one the source has (a menu sliding open, a spinner, a row expanding, a
+   toast appearing) and note what moves, how far, how long, and the easing. `interactions.js` gives the
+   CSS (`@keyframes`, duration, timing-function); your note records what it looks like. If an animation
+   is driven by JavaScript rather than CSS, say so and describe it.
+4. **Record it in the screen spec** under a "Look and feel" heading: the resting style, the hover
+   style, the focus style, the cursor, and each transition/animation, each citing its evidence file.
+   Phase 6 verifies every one of these is present in the new app.
+
 ## Behavior
 
 ### First: the interaction model
