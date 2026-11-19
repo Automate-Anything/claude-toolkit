@@ -1,8 +1,8 @@
 ---
 name: whatsapp-api
-description: How to send and receive WhatsApp messages from an app through the Automate Anything WhatsApp API (https://wa-api.automateanything.ai), a WHAPI-compatible REST API. Use it whenever a project needs to create a WhatsApp number, link a phone to it (QR or pairing code), send text / media / locations / contacts, react, mark read, edit or delete messages, receive messages and delivery ticks by webhook, download media, limit a number to the chats its owner allows (allowlist mode), or migrate code written for WHAPI. Covers the two keys (partner key, number token), where the keys come from and how to keep them secret, every endpoint, the webhook event format, errors, and the known rough edges.
+description: How to send and receive WhatsApp messages from an app through the Automate Anything WhatsApp API (https://wa-api.automateanything.ai), a WHAPI-compatible REST API. Use it whenever a project needs to create a WhatsApp number, link a phone to it (QR or pairing code), send text / media / locations / contacts, react, mark read, edit or delete messages, receive messages and delivery ticks by webhook, download media, limit a number to the chats its owner allows (allowlist mode), pace the messages a number starts (careful numbers, 429 handling), or migrate code written for WHAPI. Covers the two keys (partner key, number token), where the keys come from and how to keep them secret, every endpoint, the webhook event format, errors, and the known rough edges.
 metadata:
-  updated: "2026-11-17"
+  updated: "2026-11-19"
 ---
 
 # Automate Anything WhatsApp API
@@ -82,9 +82,9 @@ curl -X POST $BASE/messages/text -H "Authorization: Bearer $WA_API_NUMBER_TOKEN"
 
 | Method + path | Does |
 |---|---|
-| `PUT /channels` | Create a number `{ name?, allowlist_mode? }` -> `{ id, token, ... }` (`allowlist_mode: true` = this number starts in allowlist mode, see below) |
+| `PUT /channels` | Create a number `{ name?, allowlist_mode?, safety_profile? }` -> `{ id, token, ... }` (`allowlist_mode: true` = this number starts in allowlist mode, see below; `safety_profile: "careful"` = send limits, see section 6) |
 | `GET /channels/list` | This account's numbers (`?count`, `?offset`) |
-| `PATCH /channels/{id}` | Rename `{ name }` |
+| `PATCH /channels/{id}` | Rename `{ name }` and/or switch `{ safety_profile: "careful" \| "legacy" }` |
 | `DELETE /channels/{id}` | Delete (logs the phone out, removes the number for good) |
 | `GET /partners` | The account (balance is unlimited) |
 | `POST /channels/{id}/extend`, `PATCH /channels/{id}/mode` | Accepted for WHAPI compatibility; numbers never expire |
@@ -241,6 +241,7 @@ Errors look like WHAPI's: `{ "error": { "code": 400, "message": "A plain sentenc
 | 404 | Number or message not found (or belongs to another account) | Check the id |
 | 403 | WhatsApp banned this number, or (allowlist mode) the chat is not on the number's list | Banned: it cannot send or link again; tell the person. Not on the list: add the chat with `PUT /allowlist` first |
 | 409 | Number already linked (when linking), or not linked / logged out (when sending) | Link it (`GET /users/login`), wait for `GET /health` = `AUTH` |
+| 429 | Careful numbers only: a send limit was reached (`error.details` = `per_minute` or `daily_cap`); nothing was sent | Wait the seconds in the `Retry-After` header (also `error.retry_after`), then send again. Never retry in a tight loop |
 | 502 | WhatsApp's side did not answer; nothing may have been sent | Check (for example `GET /gateway/deliveries`) before sending again; do not blindly resend |
 | 503 | A linked number is reconnecting, or no capacity to connect a new number | Nothing was sent: retry in a few seconds (reconnecting) or minutes (capacity); tell the person if it persists |
 
@@ -256,6 +257,14 @@ Errors look like WHAPI's: `{ "error": { "code": 400, "message": "A plain sentenc
   sends at once with 409; do not treat that as a temporary failure.
 - **WhatsApp rules still apply:** do not send bulk unsolicited messages; numbers that spam get
   banned by WhatsApp (a banned number reports `status.reason: "banned"` and cannot link again).
+- **Careful numbers (send limits).** A number with `safety_profile: "careful"` paces the messages
+  it **starts**: one at a time a few seconds apart, at most 2 a minute, and a daily cap that is 2
+  on the day the phone first linked and rises over 10 days to 200 (a rest day at a quarter of the
+  cap follows 3 heavy days). **Replies are never limited:** a send to a chat that wrote in the last
+  24 hours goes out at once. Reactions and edits count too. Over a limit the send answers 429;
+  queue the message and send it after `Retry-After`. A careful number's send answers include
+  `safety: { initiated, sent_today, daily_cap, rest_day }`. Every other number is `legacy`: no
+  limits at all.
 
 ## 7. Install this skill
 
