@@ -82,7 +82,7 @@ curl -X POST $BASE/messages/text -H "Authorization: Bearer $WA_API_NUMBER_TOKEN"
 
 | Method + path | Does |
 |---|---|
-| `PUT /channels` | Create a number `{ name?, allowlist_mode?, safety_profile? }` -> `{ id, token, ... }` (`allowlist_mode: true` = this number starts in allowlist mode, see below; `safety_profile: "careful"` = send limits, see section 6) |
+| `PUT /channels` | Create a number `{ name?, allowlist_mode?, safety_profile? }` -> `{ id, token, ... }` (`allowlist_mode: true` = this number starts in allowlist mode, see below; `safety_profile` = `careful` (the default: send limits, see section 6) or `legacy` (no limits) |
 | `GET /channels/list` | This account's numbers (`?count`, `?offset`) |
 | `PATCH /channels/{id}` | Rename `{ name }` and/or switch `{ safety_profile: "careful" \| "legacy" }` |
 | `DELETE /channels/{id}` | Delete (logs the phone out, removes the number for good) |
@@ -258,14 +258,15 @@ Errors look like WHAPI's: `{ "error": { "code": 400, "message": "A plain sentenc
   sends at once with 409; do not treat that as a temporary failure.
 - **WhatsApp rules still apply:** do not send bulk unsolicited messages; numbers that spam get
   banned by WhatsApp (a banned number reports `status.reason: "banned"` and cannot link again).
-- **Careful numbers (send limits).** A number with `safety_profile: "careful"` paces the messages
+- **Careful numbers (send limits), the default for new numbers.** A number with `safety_profile: "careful"` paces the messages
   it **starts**: one at a time a few seconds apart, at most 2 a minute, and a daily cap that is 2
   on the day the phone first linked and rises over 10 days to 200 (a rest day at a quarter of the
   cap follows 3 heavy days). **Replies are never limited:** a send to a chat that wrote in the last
   24 hours goes out at once. Reactions and edits count too. Over a limit the send answers 429;
   queue the message and send it after `Retry-After`. A careful number's send answers include
-  `safety: { initiated, sent_today, daily_cap, rest_day }`. Every other number is `legacy`: no
-  limits at all.
+  `safety: { initiated, sent_today, daily_cap, rest_day }`. To opt a number out, create or switch it
+  with `safety_profile: "legacy"` (no limits). Numbers created before 2026-11-19 are legacy until
+  switched; `GET /channels/list` shows each number's profile.
 
 ## 7. Install this skill
 
