@@ -163,6 +163,7 @@ keep `message.id` to react, edit or delete later.
 | `PUT /presences/{chatId}` | Show "typing..." or "recording..." |
 | `GET /media/{id}` | Download a received image, voice note, document, ... (`id` = the message id) |
 | `GET /gateway/deliveries?after_id=` | This number's recent webhook events and whether each reached your app ("did my app get it?") |
+| `GET /gateway/channels/{id}/activity` (partner key) | What the number's device did, newest first, kept 30 days: sends, media downloads, presence, mark read, delete, group list, link, logout. `?since` `?until` (default last 24 h), `?kind=a,b`, `?limit`, `?before_id`, `?group=hour`. Use it when WhatsApp restricts a number |
 
 **Allowlist mode (number token; only for numbers in allowlist mode).** For a number whose owner
 allows only certain chats (for example a personal phone). You choose it per number when you create
