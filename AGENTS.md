@@ -132,7 +132,13 @@ Before doing work a skill covers, read that skill first. Highlights:
   `product-animation-website` (silent looping mockups on a site) or
   `product-animation-social-video` (voiced, captioned product-UI videos).
 - Video: `ai-video-production` (films and ads with generated footage),
-  `remotion-best-practices`.
+  `remotion-best-practices`, `herk-edit-kit` (edit real footage into videos,
+  reels and Shorts, plus end cards and motion graphics, staying free; read
+  first for any editing job).
+- HyperFrames and GSAP (third party, Apache-2.0 / MIT, from the Herk Edit Kit):
+  `hyperframes` (HTML-to-MP4 compositions), `hyperframes-cli`,
+  `hyperframes-registry`, `gsap`, `hyperframes-video-beats`, `make-a-video`,
+  `website-to-hyperframes`.
 - Process pack (third party, use when a task calls for it): `brainstorming`,
   `writing-plans`, `executing-plans`, `subagent-driven-development`,
   `dispatching-parallel-agents`, `systematic-debugging`,
