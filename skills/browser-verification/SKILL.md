@@ -1,6 +1,6 @@
 ---
 name: browser-verification
-description: How to open and drive a real browser via the chrome-devtools MCP to verify anything visual or interactive. Read this BEFORE any task where you open a page, click through a flow, fill a form, take a screenshot, read the console, inspect network requests, or confirm a UI actually renders/works. It covers which URL to open, that every session gets its OWN isolated browser, how to handle login walls (open the page, ask the user to log into YOUR window), and how to recover if the browser won't open. It ALSO covers the opposite case: opening a page or local .html file in the USER'S OWN logged-in default browser with one shell command, and how to tell which browser or Chrome profile to target when several are open. Use when the user says "check it in the browser," "open the page," "open it for me," "show me," "open it in my browser," "take a screenshot," "verify the UI," "see if it renders," "click through," or anything needing a live browser.
+description: For ANY outside website (Webflow, Vagaro, Google, Meta, a processor dashboard, anything with a login or bot protection) it REQUIRES the HUMAN Chrome (human_chrome.mjs: the real installed Chrome with no automation flag, logins that stay), never the MCP browser, so bot protection is never set off. How to open and drive a real browser via the chrome-devtools MCP to verify anything visual or interactive. Read this BEFORE any task where you open a page, click through a flow, fill a form, take a screenshot, read the console, inspect network requests, or confirm a UI actually renders/works. It covers which URL to open, that every session gets its OWN isolated browser, how to handle login walls (open the page, ask the user to log into YOUR window), and how to recover if the browser won't open. It ALSO covers the opposite case: opening a page or local .html file in the USER'S OWN logged-in default browser with one shell command, and how to tell which browser or Chrome profile to target when several are open. Use when the user says "check it in the browser," "open the page," "open it for me," "show me," "open it in my browser," "take a screenshot," "verify the UI," "see if it renders," "click through," or anything needing a live browser.
 ---
 
 # Browser Verification (Chrome DevTools MCP)
@@ -25,6 +25,112 @@ when several browsers or profiles are open.
 > hasn't loaded into this session yet (it loads at session start). Tell the user
 > to restart Claude Code once; you cannot reload it yourself. It is configured
 > globally and will be there in new sessions.
+
+## ⛔ Outside websites: ONLY the HUMAN Chrome (owner rule 2026-11-18)
+
+**The problem.** The chrome-devtools MCP browser is a test copy of Chrome started with the
+automation flag. Every site can see it: Chrome shows "Chrome is being controlled by
+automated test software", and `navigator.webdriver` is `true`. Bot protection reads that
+as a robot, and the owner pays for it: captchas, blocked logins, "new sign-in" security
+emails, a locked account. Owner, 2026-11-18: "Make it the least amount controllable, so
+it should not be triggered with AI bot protection."
+
+**The answer: the HUMAN Chrome.** It is the owner's own installed Chrome, started
+normally, with no automation flag. Only two things are added: a debug port (9333) and its
+own profile folder (`%USERPROFILE%\ChromeHumanProfile`). Measured on 2026-11-18 on
+webflow.com:
+- `navigator.webdriver` was `false`;
+- 5 plugins, languages `en-US, en`, not headless;
+- no "being controlled" bar.
+
+**Logins made in it STAY** (its profile is permanent). The owner logs in once, and every
+agent on this PC uses that session after him.
+
+You drive it with `human_chrome.mjs`, which sits next to this file. It needs Node 22 and
+no packages. It is quiet on purpose:
+- it never sends `Runtime.enable`, a known bot-detection tell (Puppeteer, Playwright and
+  the MCP all send it);
+- clicks and typing are real input events (`isTrusted = true`), sent at a human pace,
+  never `element.click()`.
+
+```bash
+H=~/.claude/skills/browser-verification/human_chrome.mjs
+node $H start                     # opens it, or reuses the running one (never a second copy)
+node $H tabs                      # what is open (the owner's tabs too: leave those alone)
+node $H open "https://webflow.com/dashboard"   # YOUR new tab: prints its id
+node $H check --tab <id>          # proves webdriver=false before you do anything
+node $H text  --tab <id>          # read the page (first 4000 characters)
+node $H click "button[type=submit]" --tab <id>
+node $H type  "hello" --tab <id>  # into the focused field, one letter at a time at a human pace
+node $H paste "hello" --tab <id>  # the whole text at once, like a paste (use for a username or password)
+node $H key   Enter --tab <id>
+node $H shot  <scratchpad>/p.png --tab <id>    # then Read the png to look at it
+node $H eval  "document.title" --tab <id>
+node $H close --tab <id>          # close YOUR tab when you are done
+```
+
+`--tab` takes the id or any part of the tab's URL.
+
+### Logging in to an outside site (only when the owner told you to for that site)
+
+Paste, never type. A person pastes a username and password in one go; one letter at a time
+at machine speed is a robot pattern. Keep the values in `.env.local` and use `paste-env`, so
+they never show up in a command, in chat or in a log:
+
+```bash
+node $H open "https://webflow.com/login"                  # note the tab id it prints
+node $H text --tab <id>                                   # already logged in? then stop here
+node $H click "input[type=email]" --tab <id>
+node $H paste-env WEBFLOW_LOGIN_EMAIL --tab <id>           # the value is never printed
+node $H click "input[type=password]" --tab <id>
+node $H paste-env WEBFLOW_LOGIN_PASSWORD --tab <id>
+node $H click "button[type=submit]" --tab <id>
+node $H text --tab <id>                                   # read what came back
+```
+
+- `paste-env NAME` reads NAME from the environment, then from `./.env.local`. Run it from the
+  repository root.
+- `paste "<text>"` pastes literal text (a search term, an address). Never use it for a
+  password: the value would show up in the command.
+- A 2FA code, captcha or "verify it's you" page: stop, the owner does that step in the same
+  window, then you continue.
+- No variable for that site, or the owner has not said you may log in there: ask him to log
+  in himself in that window (rule 3).
+
+### The rules (every one of them matters)
+
+1. **Outside site = human Chrome. No exceptions.** Never open an outside site in the MCP
+   browser, Playwright, gstack `/browse` or a headless anything, not even "just to look".
+   One visit from a flagged browser is enough to set off the bot check on the account.
+2. **Already logged in? Check first.** Run `open`, then `text`. The profile keeps
+   logins, so the owner has often already done it.
+3. **You never enter a password, a code or a customer's login** into an outside site unless the owner told you to for that site; when he does, use `paste` (a person pastes a password; letter-by-letter is a robot pattern), and never print the value. Otherwise ask
+   the owner to log in himself in that window, and wait. A captcha or "verify you are
+   human" page means the same thing: stop, he solves it, you continue.
+4. **Work only in tabs you opened** (`open`, then `--tab <id>`). Other agents and the
+   owner share this one browser. Never navigate, close or type into a tab you did not
+   open.
+5. **Move like a person.** One action at a time, and read the page before the next one.
+   No loops firing dozens of requests, no crawling hundreds of pages, no refresh
+   hammering.
+6. **Close your tab when done** (`close --tab <id>`). Do not kill the browser: the owner
+   may be using it.
+7. **Never point it at the owner's real Chrome profile.** Chrome refuses a debug port on
+   its default profile anyway (Chrome 136+). Keep `ChromeHumanProfile`.
+8. **Never add `--enable-automation`, `--headless`, or Puppeteer/Playwright launch
+   defaults to it.** Those are exactly the signals this exists to avoid.
+
+**The project's OWN app** (its localhost, staging and production URLs) has no bot protection,
+so the MCP browser below is still the tool there. You need its console and network
+reading to verify a build, and the human Chrome tool does not read either.
+
+**One window for all agents, on purpose.** That is what makes a login last. The cost is
+that tabs are shared, which is why rule 4 exists.
+
+If you need the MCP's full toolset on an outside site: chrome-devtools-mcp can attach to
+this browser with `--browserUrl http://127.0.0.1:9333`, as a second server in
+`.mcp.json`. That brings `Runtime.enable` back. So keep logins, captchas and anything
+bot-sensitive on `human_chrome.mjs`.
 
 ## This skill is the browser authority for ALL skills
 
@@ -169,8 +275,31 @@ A plain `start` lands in the DEFAULT browser, in the profile of whichever of its
 windows was focused most recently. When the user runs several Chrome profiles
 (each signed into a different account) or several browsers, that can be the wrong
 one: the page opens logged out, or logged in as the wrong account, which defeats
-the whole point. So look first. All three checks are read-only. Run them from the
-PowerShell tool.
+the whole point. So look first.
+
+**Run the helper first.** It lives next to this file and does all of the looking
+in one read-only call, then prints the exact command to run (it never opens
+anything itself):
+
+```bash
+py ~/.claude/skills/browser-verification/which_browser.py --url "https://example.com/page"
+py ~/.claude/skills/browser-verification/which_browser.py --url "<url>" --for name@   # the account the page needs
+py ~/.claude/skills/browser-verification/which_browser.py --json                     # for parsing
+```
+
+It reports the default browser, which browsers are running (with window titles),
+every Chrome / Edge / Brave profile (folder, display name, masked account, LAST
+USED, open), and a `Recommended` line with a `[powershell]` and a `[bash]`
+command. `--for` takes an email, a domain, or a profile display name: one match
+gives you the targeted command; several matches pick the one the user is sitting
+in right now (last used AND open) and say so; otherwise you get two or three
+candidates to ask with, by display name. Run the printed command, then ask the
+user what they see. Account emails are masked unless you pass `--accounts`; use
+them to decide, never paste the list into chat. macOS and Linux: the helper reads
+the profiles too and prints an `open` / `xdg-open` form.
+
+**If the helper is missing** (a machine without the toolkit), the same three
+read-only checks by hand, from the PowerShell tool:
 
 **1. Which browser is the default** (this is where a plain `start` goes):
 
