@@ -125,6 +125,8 @@ Before doing work a skill covers, read that skill first. Highlights:
   `stitch-design-taste`, `image-to-code`, `imagegen-frontend-web`,
   `imagegen-frontend-mobile`, `brandkit`, `full-output-enforcement`).
 - Motion: `motion-design`, `ui-animation`, `motion-dev-animations`.
+- Scroll stories: `scroll-craft` (a scroll-driven page where one picture travels with the
+  reading: full screen, framed, docked on phones, never black or empty; bundled `scroll-check.mjs`).
 - Mobile: `mobile-view-optimization` (make an existing web app genuinely good on
   a phone, screen by screen, without changing desktop), `mobile-app-ui-design`
   (the design bar for any mobile surface).
