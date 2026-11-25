@@ -14,8 +14,13 @@ taking itself apart, a flight into a building): use the examples to understand t
 their subject. Making the pictures themselves (Blender, photoreal stills, image-to-video, NASA
 imagery) is the `3d-studio` skill; this one is about the page around them.
 
-No plugins or outside packages are needed. It is plain React (or plain JS), CSS, `<video>` and one
-`requestAnimationFrame` loop. Add a library only if it is truly needed, and say so first.
+No plugin, engine or outside package is needed. It is plain React (or plain JS), CSS, `<video>`
+and one `requestAnimationFrame` loop. Add a library only if it is truly needed, and say so first.
+
+Many device and scrubbing details below come from nateherk's scroll-craft
+(github.com/nateherkai/scroll-craft, MIT), read and folded in as ideas; its engine, plugin and paid
+generator are not used. Where its advice clashes with the owner's rules (see "What we did not take"
+at the end), the owner's rules win.
 
 ## 0. Before building: restate the plan
 
@@ -77,6 +82,32 @@ cup. The object moves with the reading.
   must be no scroll position where nothing moves.
 - Speed inside the picture can vary (fast through the boring parts, slow at the reveal), but fast
   parts must blur like real motion (optical-flow in-betweens), not show stacked ghost copies.
+- **Even pace across a journey.** Keep (scroll length / clip seconds) within a few percent from clip
+  to clip, or the reader feels it speed up and slow down: a 36% spread felt "not smooth", 6% fixed
+  it. Changing a length moves every word window after it: check them again.
+- A small dwell inside a section settles the picture where the words are and leaves the joins
+  untouched: `f(x) = (1 - L) * x + L * (4 * (x - 0.5) ** 3 + 0.5)` with `L` at most 0.3 (the owner
+  wants it quick).
+
+**The seek loop, done right:**
+
+- Skip a write that changes the time by less than 0.008 s (computer) or 0.02 s (phone).
+- Never set `currentTime` while `video.seeking` is true: a fast flick piles up seeks and freezes the
+  clip. Wait for `seeked`, then write the latest target.
+- Clamp to `0.999 * duration` (the very end can show black on some browsers).
+- Leave an off-screen clip alone once it is within 0.002 s of where it waits.
+- Load each clip as a blob (`fetch(src).then(r => r.blob())`, then `URL.createObjectURL`) when its
+  section is about 3 screens ahead or 1.5 behind: seeking then works even without HTTP range
+  support. Attach listeners and set `preload` before `src`. Revoke the URL on teardown. The whole
+  file then sits in memory, so keep phone clips small.
+- **Clip time is not section time.** A clip tied to its section's progress sits on its first frame
+  while its box slides in and on its last frame while it slides out: the reader sees a still photo
+  moving. Map clip time from the moment the picture first shows to the moment it leaves. On a phone
+  the video is already moving while the frame scrolls up to dock.
+- **Joins: one-sided crossfade.** The incoming clip fades 0 to 1 over about 0.12 to 0.16 of a
+  screen while the outgoing one stays fully visible underneath, and drops only once it is covered.
+  Fading both at once flashes the page colour through. Never swap a `src` on one element (a black
+  frame).
 
 ## 4. Words and pictures
 
@@ -127,7 +158,17 @@ Other phone rules:
   `barH + frame height`); a framed section after another framed one follows straight on.
 - Full-screen sections are about one screen tall (`88svh` to `100svh`), with the words at the
   bottom over the picture.
-- Use `svh` units, not `vh`, so the browser bar sliding in and out does not make the page jump.
+- Use `svh` units, not `vh`, so the browser bar sliding in and out does not make the page jump. On
+  resize, if `innerWidth` did not change it is the address bar: update the height only, do not lay
+  out again. Size scroll tracks in px from `innerHeight` when the stage uses `svh`, so both agree.
+  Guard against `innerHeight` of 0 (embedded previews), which silently makes a page that cannot
+  scroll.
+- Measure again on `load` and on `document.fonts.ready`: a font swap changes how tall the words
+  are, and the docking frame is driven by them.
+- Never put a CSS `transition` on a scroll-driven `transform`: on a phone it trails about a second
+  behind the thumb.
+- A global `img { max-width: 100% }` shrinks absolutely placed picture layers on a phone: give them
+  `max-width: none`. Set width and height together, or neither.
 - **The opening subject must be whole.** If the story opens on an object (a globe, a product), it
   starts whole, centred, with nothing cut by the screen edge, then grows to fill the screen as the
   reader scrolls. Use a wide enough source so it is never cropped, place it with a soft fade on the
@@ -146,11 +187,45 @@ Other phone rules:
 - **Real, not rendered.** The owner wants it to look filmed and real. His own places come from his
   own photos and videos (his video stays video, sped up with fast and slow parts); never invent a
   stand-in for a real place. The making of the pictures: `3d-studio`.
-- Encode for scrubbing: H.264 MP4, no audio, short keyframe interval (GOP 4 to 8), `+faststart`, a
-  separate encode for phones when the shape differs. A poster image (the first frame) shows until
-  the video paints.
-- iOS paints nothing for a muted video that never played: play and pause it once after load and
-  again on the first touch.
+- **Encode for scrubbing:** re-encode (never cut with `-c copy`, it scrubs badly):
+  `ffmpeg -i in.mp4 -c:v libx264 -profile:v high -preset slow -crf 20 -g 8 -keyint_min 8 -sc_threshold 0 -vf "scale=W:-2:flags=lanczos,format=yuv420p" -an -movflags +faststart out.mp4`.
+  `-sc_threshold 0` and `-keyint_min` keep keyframes evenly spaced. CRF 22 to 23 for grainy
+  footage. Bring 60 fps phone footage to 24 or 30 (`fps=30`) first: about half the size. Roughly
+  3 MB per 5 s at 1080p. An ffmpeg with fewer than about 200 filters (`ffmpeg -filters | wc -l`) is
+  a stripped build that reports a missing filter as a syntax error.
+- **Phone clips:** a landscape clip covering a portrait screen decodes the whole frame and throws
+  away about three quarters, which shows as soft and stuttering. For a full-screen phone clip, cut
+  it portrait from the master (`crop=ih*9/16:ih`) at display width x DPR. The exception is an
+  opening subject that must stay whole (a globe): give it a wider clip, still sharp at its shown
+  size. Never `object-fit: contain` (letterboxing reads as a broken embed).
+- **Posters and joins from the encoded file:** take the poster from the final mp4
+  (`ffmpeg -i clip.mp4 -frames:v 1 -q:v 2 poster.png`), and the next clip's start picture from the
+  end of the previous one (`ffmpeg -sseof -0.15 -i legN.mp4 -frames:v 1 chainN.png`). Measure each
+  join with ffmpeg's PSNR filter: 28 to 40 dB looked seamless. Give phones their own poster with
+  `<picture><source media="(max-width: 1023px)" ...>` so it matches the phone clip.
+- **The owner's own footage:** measure the levels first (`signalstats` YMIN/YMAX) and stretch flat
+  footage with `colorlevels` in the file, not with a CSS filter. Trim before anyone walks in. Use
+  one continuous move in one direction: a reader will stop exactly on a reversal.
+- A replaced picture gets a new file name (or `?v=2`): phones keep the old copy cached.
+- **iOS shows a frozen first frame** unless the clip is primed. Set `muted` and `playsInline` as JS
+  properties as well as attributes. On `loadedmetadata`, `play()` then `pause()`, then nudge
+  `currentTime` by +0.05 s so the frame repaints, and seek once even at time 0
+  (`currentTime = Math.max(t, 0.001)`, a clip already at 0 never fires `seeked`). Keep retrying the
+  prime on `touchend`, `pointerdown`, `click` and `scroll` until every clip has worked (one try on
+  the first touch is used up while the first clip is still downloading; `touchend` counts as a user
+  gesture, `touchstart` does not). iOS can leave a `play()` promise or `seeking` pending forever:
+  release the priming flag after 2 s, and re-issue a seek stuck for over 700 ms with
+  `currentTime += 0.001`. Swap the poster away on `seeked` or after 2.5 s, whichever comes first.
+  The sign of a missed prime: the first clip frozen, later ones fine.
+
+## 6b. Reduced motion and keyboard
+
+- Under `prefers-reduced-motion: reduce`, fetch no clips and show the posters, cross-fading at the
+  same scroll positions. Drop every transform, keep opacity, set `scroll-behavior: auto`. The page
+  must still read with no empty screen (scroll-check `--reduced-motion`).
+- When a focused button sits in a moving or faded layer, bring it into view with
+  `scrollIntoView({ block: "center", behavior: "instant" })` (`smooth` glides with the focus off
+  screen).
 
 ## 7. Verify before showing the owner
 
@@ -162,11 +237,29 @@ node scroll-check.mjs http://localhost:3000/ --sizes 412x800,360x640,1440x900 --
 node scroll-check.mjs http://localhost:3000/ --compare https://example.com/ --sizes 2096x1100 --box ".picture-box"
 ```
 
-It walks the page in quarter-screen steps and reports, per size: positions with no words in view
-and almost no picture on screen (empty), a framed picture partly out of view, buttons that a tap
-does not reach (something lies on top), errors in the console, and horizontal overflow. It saves a
-JPEG contact strip to look at. `--compare` checks the picture box lands in the same place on two
-builds: use it to prove a phone-only fix changed nothing on the computer.
+It walks the page in quarter-screen steps, waits at each step until the videos and the box stop
+moving, and reports per size:
+
+- **empty**: no words in view and almost no picture on screen;
+- **dead**: the reader scrolled and nothing on screen changed;
+- **offview**: a framed picture partly cut by the screen edge;
+- **blocked**: buttons a tap does not reach (something lies on top);
+- **poster**: a video in view that never painted;
+- **soft**: a video shown larger than its pixels at the device's pixel ratio (phones run at 3);
+- **media**: clips or images that failed to load;
+- **overflow** and console **errors**.
+
+With `--out` it saves a JPEG per position and, when ffmpeg is installed, one contact sheet per size
+to look at. `--compare` checks the picture box lands in the same place on two builds: use it to
+prove a phone-only fix changed nothing on the computer. `--reduced-motion` walks the page as a
+reader with reduced motion. Setup: `npm i playwright-core` in a scratch folder and point `PW_DIR`
+at it; it drives installed Chrome.
+
+When a clip misbehaves only on the owner's real phone, build a small diagnostic page: scrub the
+suspect clip as a blob, as a direct `src`, and beside a known-good clip, count distinct frames by
+drawing the video into a 16x16 canvas and hashing it (3 or more distinct frames: moving; none after
+a third of the scroll: frozen), and print `readyState`, the prime result and the seek count. One
+screenshot from his phone then tells which layer fails.
 
 Then look yourself:
 
@@ -203,6 +296,20 @@ One worked example, to show the method in use, not a template:
 - Code: `C:\dev\aimplement\src\components\site\world-hero.tsx`. Picture making:
   `C:\dev\aimplement-world\scrollcraft\builds\aimplement-world\` and the `3d-studio` skill.
 
+## What we did not take from nateherk's scroll-craft
+
+Each of these clashes with the owner's rules:
+
+- A fixed stage with every word in a layer sliding over the film (its "worldflight" mode), a
+  full-screen hero as the phone default, or dropping the clip on phones for a still poster.
+- Slow pacing: "slower than you think", 2 to 3 screens per hero section, long pins, an empty screen
+  "before the peak". Ours: about one screen per section, never empty.
+- Off-black instead of true black (we match the video's black to the page's black at 0).
+- 720 px phone encodes (ours: display width x DPR).
+- Dark bands over up to 58% of the frame (a veil; ours: a glow on the words).
+- Its variety law, fingerprint gate and signature-move rules: a different design method.
+- kie.ai for generating pictures: any generator works, see `3d-studio`.
+
 ## Rules ledger (add every scroll rule the owner teaches)
 
 | Date | Rule |
@@ -219,4 +326,4 @@ One worked example, to show the method in use, not a template:
 | Nov 23 | Phones keep the frames. Turning everything into a full-screen movie is a redesign he did not ask for. |
 | Nov 25 | The opening subject is whole on a phone: never cut by the screen edge, no rectangle, no rim, sharp. It starts further away and you zoom in, like on the computer. |
 | Nov 25 | Fix small problems small; never redesign what he already liked. |
-| Nov 25 | No plugins or third-party packages unless truly necessary; this is our own skill and our own tools. |
+| Nov 25 | Our own skill and our own tools. Outside plugins and skills are welcome as ideas ("if there's any value to it, we can use it"); install or connect one only when truly necessary. |
