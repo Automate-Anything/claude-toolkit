@@ -41,6 +41,17 @@ existing one does not need this (see section 8).
   blend the same way.
 - So the picture goes box, to window, to full screen, to box again. It never stays parked in one
   place while the page slides past it.
+- **Rest, then one move.** The picture rests in its slot while the reader reads that section, and
+  makes ONE short move per section: after the old words have left and before the new ones are
+  read (e.g. while the next section's top rises from the middle of the screen to a fifth of the way
+  down). A picture that glides the whole time reads as "just movement without any structure".
+- **Where a slot rests:** where it sits while its section is pinned (measure the slot relative to
+  its pinned block), never its live position on the page. A live slot scrolls away with its section
+  while the next one is still below the screen, and the blend of the two leaves the picture half
+  off the screen. Keep it under the top bar and above the bottom edge.
+- **Frames on one side.** Every framed picture on the same side, every block of words on the other.
+  Words are on screen almost all the time, so a picture that crosses from right to left always
+  passes over words.
 
 What the owner rejected, and why:
 
@@ -326,4 +337,5 @@ Each of these clashes with the owner's rules:
 | Nov 23 | Phones keep the frames. Turning everything into a full-screen movie is a redesign he did not ask for. |
 | Nov 25 | The opening subject is whole on a phone: never cut by the screen edge, no rectangle, no rim, sharp. It starts further away and you zoom in, like on the computer. |
 | Nov 25 | Fix small problems small; never redesign what he already liked. |
+| Nov 27 | On a computer the picture must never go out of sight and never sit under the words: it rests where its slot is while pinned, moves once per section, and all frames stay on one side ("it goes from right to left without any understanding"). |
 | Nov 25 | Our own skill and our own tools. Outside plugins and skills are welcome as ideas ("if there's any value to it, we can use it"); install or connect one only when truly necessary. |
